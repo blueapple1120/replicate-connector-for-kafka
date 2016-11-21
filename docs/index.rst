@@ -1,7 +1,7 @@
 .. _replicate_connector_:
 
-Replicate Connector for Kafka
-=============================
+Dbvisit Replicate Connector for Kafka
+=====================================
 
 Contents:
 
