@@ -7,11 +7,11 @@ Configuration Parameters
 Key User Configuration Properties
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-**plog.location.uri**
-    This is the location from which Dbvisit Replicate Connector will search for and read PLOG files delivered by the Dbvisit Replicate application. This directory must be local to the filesystem on which Kafka Connect is running, or accessible to it via a mounted filesystem. It cannot be an otherwise remote filesystem.
+.. note::
+    **plog.location.uri** - is the location from which Dbvisit Replicate Connector will search for and read PLOG files delivered by the Dbvisit Replicate application. This directory must be local to the filesystem on which Kafka Connect is running, or accessible to it via a mounted filesystem. It cannot be an otherwise remote filesystem.
 
-**plog.data.flush.size**
-    For low transactional volumes (and for testing) it's best to change the default value of plog.data.flush.size in the configuration file to a value less than your total number of change records, eg. for manual testing I tend to use 1 to verify that each record is emitted correctly. This configuration parameter is used as the internal PLOG reader's cache size which translates at run time to the size of the polled batch of kafka messages. The idea is that it's more efficient under high transactional load to publish to kafka (particularly in distributed mode where network latency might be an issue) in batches. Please note the caveat of this approach is that the data from PLOG reader is only emitted once the cache is full (for the specific kafka source task) and/or the PLOG is done, so log switch has occurred. This means that if the plog.data.flush.size is greater than total number of LCRs in cache it will wait for more data to arrive or a log switch to occur.
+.. note::
+    **plog.data.flush.size** - for low transactional volumes (and for testing) it's best to change the default value of plog.data.flush.size in the configuration file to a value less than your total number of change records, eg. for manual testing I tend to use 1 to verify that each record is emitted correctly. This configuration parameter is used as the internal PLOG reader's cache size which translates at run time to the size of the polled batch of kafka messages. The idea is that it's more efficient under high transactional load to publish to kafka (particularly in distributed mode where network latency might be an issue) in batches. Please note the caveat of this approach is that the data from PLOG reader is only emitted once the cache is full (for the specific kafka source task) and/or the PLOG is done, so log switch has occurred. This means that if the plog.data.flush.size is greater than total number of LCRs in cache it will wait for more data to arrive or a log switch to occur.
 
 
 All User Configuration Properties
@@ -21,71 +21,61 @@ All User Configuration Properties
   Maximum number of tasks to start for processing PLOGs.
 
   * Type: string
-  * Importance: high
-  * Default: 4``
+  * Default: 4
 
 ``topic.prefix``
   Prefix for all topic names.
 
   * Type: string
   * Default: REP-
-  * Importance: high``
 
 ``plog.location.uri``
   Replicate PLOG location URI, output of Replicate MINE.
 
   * Type: string
   * Default: file:/home/oracle/ktest/mine
-  * Importance: high``
 
 ``plog.data.flush.size``
   LCRs to cache before flushing, for connector this is the batch size, choose this value according to transactional volume, for high throughput to kafka the default value may suffic, for low or sporadic volume lower this value, eg. for testing use 1 which will not use cache and emit every record immediately.
 
   * Type: string
   * Default: 1000
-  * Importance: high``
 
 ``plog.interval.time.ms``
   Time in milliseconds for one wait interval, used by scans and health check.
 
   * Type: string
   * Default: 500
-  * Importance: high``
 
 ``plog.scan.interval.count``
   Number of intervals between scans, eg. 5 x 0.5s = 2.5s scan wait time.
 
   * Type: string
   * Default: 5
-  * Importance: high``
 
 ``plog.health.check.interval``
   Number of intervals between health checks, these are used when initially waiting for MINE to produce PLOGs, eg. 10 * 0.5s = 5.0s.
 
   * Type: string
   * Default: 10
-  * Importance: high``
 
 ``plog.scan.offline.interval``
   Default number of health check scans to decide whether or not replicate is offline, this is used as time out value. NOTE for testing use 1, i.e. quit after first health check 1 * 10 * 0.5s = 5s where 10 is plog.health.check.interval value and 0.5s is plog.interval.time.ms value.
 
   * Type: string
   * Default: 1000
-  * Importance: high``
 
 ``topic.name.transaction.info``
   Topic name for transaction meta data stream.
 
   * Type: string
   * Default: TX.META
-  * Importance: high``
 
 ``plog.global.scn.cold.start``
   Global SCN when to start loading data during cold start.
 
   * Type: string
   * Default: 0
-  * Importance: high``
 
 
 Data Types
