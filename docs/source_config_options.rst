@@ -11,7 +11,7 @@ Key User Configuration Properties
     **plog.location.uri** - is the location from which Dbvisit Replicate Connector will search for and read PLOG files delivered by the Dbvisit Replicate application. This directory must be local to the filesystem on which Kafka Connect is running, or accessible to it via a mounted filesystem. It cannot be an otherwise remote filesystem.
 
 .. note::
-    **plog.data.flush.size** - for low transactional volumes (and for testing) it's best to change the default value of plog.data.flush.size in the configuration file to a value less than your total number of change records, eg. for manual testing I tend to use 1 to verify that each record is emitted correctly. This configuration parameter is used as the internal PLOG reader's cache size which translates at run time to the size of the polled batch of kafka messages. The idea is that it's more efficient under high transactional load to publish to kafka (particularly in distributed mode where network latency might be an issue) in batches. Please note the caveat of this approach is that the data from PLOG reader is only emitted once the cache is full (for the specific kafka source task) and/or the PLOG is done, so log switch has occurred. This means that if the plog.data.flush.size is greater than total number of LCRs in cache it will wait for more data to arrive or a log switch to occur.
+    **plog.data.flush.size** - for low transactional volumes (and for testing) it is best to change the default value of ``plog.data.flush.size`` in the configuration file to a value less than your total number of change records, eg. for manual testing you can use 1 to verify that each and every record is emitted correctly. This configuration parameter is used as the internal PLOG reader's cache size which translates at run time to the size of the polled batch of Kafka messages. It is more efficient under high transactional load to publish to Kafka (particularly in distributed mode where network latency might be an issue) in batches. Please note that in this approach the data from the PLOG reader is only emitted once the cache is full (for the specific Kafka source task) and/or the PLOG is done, so an Oracle redo log switch has occurred. This means that if the ``plog.data.flush.size`` is greater than total number of LCRs in cache it will wait for more data to arrive or a log switch to occur.
 
 
 All User Configuration Properties
@@ -81,58 +81,45 @@ All User Configuration Properties
 Data Types
 ----------
 
-+----------------------+---------------------+--------------------------------------------------+
-| Oracle Data Type     | Connect Data Type   | Description                                      |
-+======================+=====================+==================================================+
-| NUMBER               | Int32               | scale <= 0 and precision - scale < 10            |
-+----------------------+---------------------+--------------------------------------------------+
-| NUMBER               | Int64               |  scale <= 0 and precision - scale > 10 and < 20  |                                    
-+----------------------+---------------------+--------------------------------------------------+
-| NUMBER               | Decimal             | scale > 0 or precision - scale > 20              |
-+----------------------+---------------------+--------------------------------------------------+
-| CHAR                 | String              | UTF8 string                                      |
-+----------------------+---------------------+--------------------------------------------------+
-| VARCHAR              | String              | UTF8 string                                      |
-+----------------------+---------------------+--------------------------------------------------+
-| VARCHAR2             | String              | UTF8 string                                      |
-+----------------------+---------------------+--------------------------------------------------+
-| NCHAR                | String              | UTF8, attempt is made to auto-detect if national | 
-|                      |                     | character set was UTF-16                         |           
-+----------------------+---------------------+--------------------------------------------------+
-| NVARCHAR             | String              | UTF8, attempt is made to auto-detect if national | 
-|                      |                     | character set was UTF-16                         |           
-+----------------------+---------------------+--------------------------------------------------+
-| NVARCHAR2            | String              | UTF8, attempt is made to auto-detect if national | 
-|                      |                     | character set was UTF-16                         |           
-+----------------------+---------------------+--------------------------------------------------+
-| LONG                 | String              | UTF8 string                                      |
-+----------------------+---------------------+--------------------------------------------------+
-| INTERVAL DAY TO      | String              | UTF8 string                                      |
-| SECOND               |                     |                                                  |
-+----------------------+---------------------+--------------------------------------------------+
-| INTERVAL YEAR TO     | String              | UTF8 string                                      |
-| MONTH                |                     |                                                  |
-+----------------------+---------------------+--------------------------------------------------+
-| CLOB                 | String              | UTF8 string                                      |
-+----------------------+---------------------+--------------------------------------------------+
-| NCLOB                | String              | UTF8 string                                      |
-+----------------------+---------------------+--------------------------------------------------+
-| DATE                 | Timestamp           |                                                  |
-+----------------------+---------------------+--------------------------------------------------+
-| TIMESTAMP            | Timestamp           |                                                  |
-+----------------------+---------------------+--------------------------------------------------+
-| TIMESTAMP WITH TIME  | Timestamp           |                                                  |
-| ZONE                 |                     |                                                  |
-+----------------------+---------------------+--------------------------------------------------+
-| TIMESTAMP WITH LOCAL | Timestamp           |                                                  |
-| TIME ZONE            |                     |                                                  |
-+----------------------+---------------------+--------------------------------------------------+
-| BLOB                 | Bytes               |                                                  |
-+----------------------+---------------------+--------------------------------------------------+
-| RAW                  | Bytes               |                                                  |
-+----------------------+---------------------+--------------------------------------------------+
-| LONG RAW             | Bytes               |                                                  |
-+----------------------+---------------------+--------------------------------------------------+
++----------------------+---------------------+---------------------------------------------------------------------+
+| Oracle Data Type     | Connect Data Type   | Default Value    | Conversion Rule                                  |
++======================+=====================+=====================================================================+
+| NUMBER               | Int32               | -1               | scale <= 0 and precision - scale < 10            |
++----------------------+---------------------+---------------------------------------------------------------------+
+| NUMBER               | Int64               | -1L              | scale <= 0 and precision - scale > 10 and < 20   |
++----------------------+---------------------+---------------------------------------------------------------------+
+| NUMBER               | Decimal             | BigDecimal.ZERO  | scale > 0 or precision - scale > 20              |
++----------------------+---------------------+---------------------------------------------------------------------+
+| CHAR                 | Type.String         | Empty string     | Encoded as UTF8 string                           |
+| VARCHAR              |                     | (zero length)    |                                                  |
+| VARCHAR2             |                     |                  |                                                  |
+| LONG                 |                     |                  |                                                  |
++----------------------+---------------------+---------------------------------------------------------------------+
+| NCHAR                | Type.String         | Empty string     | Encoded as UTF8, attempt is made to auto-detect  |
+| NVARCHAR             |                     | (zero length)    | if national character set was UTF-16             |
+| NVARCHAR2            |                     |                  |                                                  |
++----------------------+---------------------+---------------------------------------------------------------------+
+| INTERVAL DAY TO      | Type.String         | Empty string     |                                                  |
+| SECOND               |                     | (zero length)    |                                                  |
+| INTERVAL YEAR TO     |                     |                  |                                                  |
+| MONTH                |                     |                  |                                                  |
++----------------------+---------------------+---------------------------------------------------------------------+
+| CLOB                 | Type.String         | Empty string     | UTF8 string                                      |
+| NCLOB                |                     | (zero length)    |                                                  |
++----------------------+---------------------+---------------------------------------------------------------------+
+| DATE                 | Timestamp           | Epoch time       |                                                  |
+| TIMESTAMP            |                     |                  |                                                  |
+| TIMESTAMP WITH TIME  |                     |                  |                                                  |
+| ZONE                 |                     |                  |                                                  |
+| TIMESTAMP WITH LOCAL |                     |                  |                                                  |
+| TIME ZONE            |                     |                  |                                                  |
++----------------------+---------------------+---------------------------------------------------------------------+
+| BLOB                 | Bytes               | Empty byte array | Converted from SerialBlob to bytes               |
+|                      |                     | (zero length)    |                                                  |
++----------------------+---------------------+---------------------------------------------------------------------+
+| RAW                  | Bytes               | Empty byte array |                                                  |
+| LONG RAW             | Bytes               | (zero length)    |                                                  |
++----------------------+---------------------+---------------------------------------------------------------------+
 
 
 Distributed Mode Settings

@@ -203,7 +203,7 @@ latex_elements = {
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
   ('index', 'DbvisitReplicateConnectorforKafka.tex', u'Dbvisit Replicate Connector for Kafka documentation',
-   u'Confluent, Inc.', 'manual'),
+   u'Dbvisit Software Limited', 'manual'),
 ]
 
 # The name of an image file (relative to this directory) to place at the top of
@@ -233,7 +233,7 @@ latex_documents = [
 # (source start file, name, description, authors, manual section).
 man_pages = [
     ('index', 'replicateconnectorforkafka', u'Dbvisit Replicate Connector for Kafka',
-     [u'Dbvisit Software Ltd.'], 1)
+     [u'Dbvisit Software Limited'], 1)
 ]
 
 # If true, show URL addresses after external links.
