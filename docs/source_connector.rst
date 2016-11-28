@@ -185,41 +185,53 @@ To illustrate we create a simple table on the Oracle source database, as follows
 .. sourcecode:: bash
 
     create table SOE.TEST2 (
-    user_id number,
+    user_id number (6,0),
     user_name varchar2(100),
     user_role varchar2(100));
 
-The default Kafka Connect Avro consumer can be invoked as follows:
+The default Kafka Connect JSON consumer can be invoked as follows (see the notes below on JSON encoding). Note that using the default Avro encoding with the supplied Avro consumers produces output that does not include the JSON schema information, and effectively begins from XID as follows:
 
 .. sourcecode:: bash
 
-    [oracle@dbvrep01 confluent-3.1.1]$ ./bin/kafka-avro-console-consumer --new-consumer --bootstrap-server localhost:9092 --topic REP-SOE.TEST2 --from-beginning
+    [oracle@dbvrep01 confluent-3.1.1]$ ./bin/kafka-console-consumer --new-consumer --bootstrap-server localhost:9092 --topic REP-SOE.TEST2 --from-beginning
 
 Inserts
 """""""
+insert into SOE.TEST2  values (1, 'Matt Roberts', 'Clerk');
+
+commit;
+
 .. sourcecode:: bash
 
-    {"XID":"0003.007.00008168","TYPE":"INSERT","CHANGE_ID":1064010025000,"USER_ID":{"bytes":"\u0000"},"USER_NAME":{"string":"Matt Roberts"},"USER_ROLE":{"string":"Clerk"}}
+    {"schema":{"type":"struct","fields":[{"type":"string","optional":false,"field":"XID"},{"type":"string","optional":false,"field":"TYPE"},{"type":"int64","optional":false,"field":"CHANGE_ID"},{"type":"int32","optional":true,"field":"USER_ID"},{"type":"string","optional":true,"field":"USER_NAME"},{"type":"string","optional":true,"field":"USER_ROLE"}],"optional":false,"name":"REP-SOE.TEST2"},"payload":{"XID":"0003.014.00009447","TYPE":"INSERT","CHANGE_ID":1416010010667,"USER_ID":1,"USER_NAME":"Matt Roberts","USER_ROLE":"Clerk"}}
 
 Updates
 """""""
+update SOE.TEST2 set user_role = 'Senior Partner' where user_id=1;
+
+commit;
+
 .. sourcecode:: bash
 
-    {"XID":"0003.011.0000816b","TYPE":"UPDATE","CHANGE_ID":1065010002623,"USER_ID":{"bytes":"\u0000"},"USER_NAME":{"string":"Matt Roberts"},"USER_ROLE":{"string":"Administrator"}}
+    {"schema":{"type":"struct","fields":[{"type":"string","optional":false,"field":"XID"},{"type":"string","optional":false,"field":"TYPE"},{"type":"int64","optional":false,"field":"CHANGE_ID"},{"type":"int32","optional":true,"field":"USER_ID"},{"type":"string","optional":true,"field":"USER_NAME"},{"type":"string","optional":true,"field":"USER_ROLE"}],"optional":false,"name":"REP-SOE.TEST2"},"payload":{"XID":"0004.012.00007357","TYPE":"UPDATE","CHANGE_ID":1417010001808,"USER_ID":1,"USER_NAME":"Matt Roberts","USER_ROLE":"Senior Partner"}}
 
 Note that a complete row is represented as a message delivered to Kafka. This is obtained by merging the existing and changed values to produce the current view of the record as it stands.
 
 Deletes
 """""""
+delete from SOE.TEST2 where user_id=1;
+
+commit;
+
 .. sourcecode:: bash
 
-    {"XID":"0002.019.00008295","TYPE":"DELETE","CHANGE_ID":1066010000618,"USER_ID":{"bytes":"\u0000"},"USER_NAME":{"string":"Matt Roberts"},"USER_ROLE":{"string":"Administrator"}}
+    {"schema":{"type":"struct","fields":[{"type":"string","optional":false,"field":"XID"},{"type":"string","optional":false,"field":"TYPE"},{"type":"int64","optional":false,"field":"CHANGE_ID"},{"type":"int32","optional":true,"field":"USER_ID"},{"type":"string","optional":true,"field":"USER_NAME"},{"type":"string","optional":true,"field":"USER_ROLE"}],"optional":false,"name":"REP-SOE.TEST2"},"payload":{"XID":"0007.01b.000072b4","TYPE":"DELETE","CHANGE_ID":1418010000537,"USER_ID":1,"USER_NAME":"Matt Roberts","USER_ROLE":"Senior Partner"}}
 
-Note that the detail for a delete shows the row values as they were at the time of this operation.
+Note that the detail for a delete shows the row values as they were at the time this operation was performed.
 
 Topic Per Table
 ^^^^^^^^^^^^^^^
-Data from each replicated table is published to its own un-partitioned topic, eg. all change row records for a replicated table will be published as Kafka messages in a single partition in a topic. 
+Data from each replicated table is published to its own topic, eg. all change row records for a replicated table will be published as Kafka messages in a single partition in a topic. 
 
 Topic Auto-creation
 ^^^^^^^^^^^^^^^^^^^
