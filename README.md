@@ -1,10 +1,10 @@
 # Replicate Connector for Kafka
 
-Copyright (C) 2016 Dbvisit Software Limited -- Updated 2 December 2016
+Copyright (C) 2016 Dbvisit Software Limited -- Updated 2 December 2016.
 
 # 1 Introduction
 
-Replicate Connector for Kafka is a [Kafka Connector](http://kafka.apache.org/090/documentation.html#connect) for loading change records from the REDO logs of an Oracle database, as mined by [Dbvisit Replicate](http://www.dbvisit.com), to Kafka.
+Replicate Connector for Kafka is a [Kafka Connector](https://www.confluent.io/product/connectors/) for loading change records from the REDO logs of an Oracle database, as mined by [Dbvisit Replicate](http://www.dbvisit.com/products/dbvisit_replicate_real_time_oracle_database_replication/), to Kafka.
 
 # 2 Licensing
 
