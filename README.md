@@ -1,28 +1,37 @@
 # Replicate Connector for Kafka
-Copyright (C) 2016 Dbvisit Software Limited -- Updated 7 November 2016
+
+Copyright (C) 2016 Dbvisit Software Limited -- Updated 1 December 2016
 
 # 1 Introduction
 
+Replicate Connector for Kafka is a [Kafka Connector](http://kafka.apache.org/090/documentation.html#connect) for loading change records from the REDO logs of an Oracle database, as mined by [Dbvisit Replicate](http://www.dbvisit.com), to Kafka
+
 # 2 Licensing
+
 This software is released under the Apache 2.0 license, a copy of which is located in the LICENSE file.
 
 # 3 Building
 
-# 4 Downloads
+You can build the Replicate Connector for Kafka with Maven using the standard lifecycle phases. The Replicate Connector for Kafka requires the [Dbvisit replicate connector library](https://github.com/dbvisitsoftware/replicate-connector-library), build and install it prior to building this connector
 
-# 5 Documentation
-Documentation for Replicate Connector for Kafka is located 
+```
+mvn clean package
+```
 
-# 6 Installation
-To install the Replicate Connector for Kafka follow the steps shown below.
+To build developer documentation run:
 
-# 7 Development
+```
+mvn javadoc:javadoc
+```
 
-# 8 Community
-Replicate Connector is supported by an active community. You can find us in the following places.
+# 4 Documentation
 
-# 9 Contributions
+User documentation for Replicate Connector for Kafka are located [here](http://replicate-connector-for-kafka.readthedocs.io/en/latest/source_connector.html)
+
+# 5 Installation
+
+To install and use the Replicate Connector for Kafka follow the steps outlined in the [quickstart guide](http://replicate-connector-for-kafka.readthedocs.io/en/latest/source_connector.html#quickstart)
+
+# 6 Contributions
+
 Active communities contribute code and we're happy to consider yours. To be involved, please email <a href="mailto:mike.donovan@dbvisit.com">Mike Donovan</a>.
-
-# 10 Problems
-This is open source software. Check the wiki, issues list, and mailing lists to get help.
