@@ -46,18 +46,24 @@ To demonstrate the operation and functionality of the connector, we have provide
     SOE.ORDERS:       Mine:809
     SOE.INVENTORIES:  Mine:939
     SOE.LOGON:        Mine:1006
+    TX.META:          Mine:1054
 
 A set of PLOGs containing a larger dataset, and which also utilises the `LOAD function <http://replicate-connector-for-kafka.readthedocs.io/en/latest/source_connector.html#load>`_, can be `downloaded from the location <https://www.dropbox.com/s/wyb8uzaewhylssm/large-plog-dataset-with-load.zip?dl=0>`_. This contains the following number of change records, across the tables included in the replication:
 
 .. sourcecode:: bash
 
-    SOE.CUSTOMERS:    Mine:
-    SOE.ADDRESSES:    Mine:
-    SOE.CARD_DETAILS: Mine:
-    SOE.ORDER_ITEMS:  Mine:
-    SOE.ORDERS:       Mine:
-    SOE.INVENTORIES:  Mine:
-    SOE.LOGON:        Mine:
+    SOE.CUSTOMERS:            Mine:112082
+    SOE.ADDRESSES:            Mine:112293
+    SOE.CARD_DETAILS:         Mine:112143
+    SOE.WAREHOUSES:           Mine:1000
+    SOE.ORDER_ITEMS:          Mine:768791
+    SOE.ORDERS:               Mine:300376
+    SOE.INVENTORIES:          Mine:902795
+    SOE.PRODUCT_INFORMATION:  Mine:1000
+    SOE.LOGON:                Mine:820090
+    SOE.PRODUCT_DESCRIPTIONS: Mine:1000
+    SOE.ORDERENTRY_METADATA : Mine:4
+    TX.META:                  Mine:3782
 
 
 You can download the Dbvisit Replicate Connector QuickStart properties file (that you can also `see on GitHub <https://github.com/dbvisitsoftware/replicate-connector-for-kafka/blob/master/config/dbvisit-replicate.properties>`_), which contains sensible starting configuration parameters, `from this location <https://www.dropbox.com/s/ao374dfo1iiapel/dbvisit-replicate.properties?dl=0>`_. 
@@ -105,8 +111,8 @@ Steps
 
     #Create a directory to hold the example PLOG files, e.g:
     ➜ mkdir /usr/dbvisit/replicate/demo/mine
-    #Install the example PLOG files (download link provided above) to the location just created
-    #Edit the plog.location.uri parameter in the replicate-quickstart-file.properties example configuration file to point to the location where the example PLOG files are located: e.g;
+    #Upload and unzip the example PLOG files (download links for small and large datasets provided above) to the location just created
+    #Edit the plog.location.uri parameter in the Quickstart dbvisit-replicate.properties example configuration file to point to the location where the example PLOG files are located: e.g;
     ➜ plog.location.uri=file:/usr/dbvisit/replicate/demo/mine
 
 5.  Start the Zookeeper, Kafka and Schema Registry processes
@@ -162,9 +168,13 @@ To run the Replicate Connector in Kafka Connect standalone mode open another ter
 
 .. sourcecode:: bash
 
-    ➜ ./bin/connect-standalone ./etc/schema-registry/connect-avro-standalone.properties ./etc/kafka-connect-dbvisitreplicate/replicate-test-file.properties
+    ➜ ./bin/connect-standalone ./etc/schema-registry/connect-avro-standalone.properties ./etc/kafka-connect-dbvisitreplicate/dbvisit-replicate.properties
 
 You should see the process start up, log some messages, and then locate and begin processing PLOG files. The change records will be extracted and written in batches, sending the results through to Kafka. 
+
+7. View the messages in Kafka with the default Consumer utilities
+
+Default Kafka consumers (clients for consuming messages from Kafka) are provided by the Confluent Platform for both Avro and Json encoding, and they can be invoked as follows:
 
 .. sourcecode:: bash
 
@@ -174,7 +184,27 @@ You should see the process start up, log some messages, and then locate and begi
 
 This expected output shows the SOE.CUSTOMERS table column data in the JSON encoding of the Avro records. The JSON encoding of Avro encodes the strings in the format ``{"type": value}``, and a column of type ``STRING`` can be ``NULL``. So each row is represented as an Avro record and each column is a field in the record. Included also are the Transaction ID (XID) that the change to this particular record occurred in, the TYPE of DML change made (insert, delete or update), and the specific CHANGE_ID as recorded for this in Dbvisit Replicate.
 
-If there are more PLOGS to process you should see changes come through via this consumer as they are processed by the connector. Ctrl-C to stop the consumer processing further, and then start another as follows, to see the changes delivered to the REP-TX.META topic, which contains the meta-data about all the changes made on the source.
+NOTE: to use JSON encoding and the JSON consumer please see our notes on `JsonConverter settings <http://replicate-connector-for-kafka.readthedocs.io/en/latest/source_connector.html#json>`_ later in this guide.
+
+If there are more PLOGS to process you should see changes come through the consumers in real-time, and the following "Processing PLOG" messages in the Replicate Connector log file output:
+
+.. sourcecode:: bash
+
+    [2016-12-03 09:28:13,557] INFO Processing PLOG: 1695.plog.1480706183 (com.dbvisit.replicate.kafkaconnect.ReplicateSourceTask:587)
+    [2016-12-03 09:28:17,517] INFO Reflections took 22059 ms to scan 265 urls, producing 14763 keys and 113652 values  (org.reflections.Reflections:229)
+    [2016-12-03 09:29:04,836] INFO Finished WorkerSourceTask{id=dbvisit-replicate-0} commitOffsets successfully in 9 ms (org.apache.kafka.connect.runtime.WorkerSourceTask:356)
+    [2016-12-03 09:29:04,838] INFO Finished WorkerSourceTask{id=dbvisit-replicate-1} commitOffsets successfully in 1 ms (org.apache.kafka.connect.runtime.WorkerSourceTask:356)
+    [2016-12-03 09:29:04,839] INFO Finished WorkerSourceTask{id=dbvisit-replicate-2} commitOffsets successfully in 1 ms (org.apache.kafka.connect.runtime.WorkerSourceTask:356)
+    [2016-12-03 09:29:04,840] INFO Finished WorkerSourceTask{id=dbvisit-replicate-3} commitOffsets successfully in 1 ms (org.apache.kafka.connect.runtime.WorkerSourceTask:356)
+
+
+Ctrl-C to stop the consumer processing further, and which will then show a count of how many records (messages) the consumer has processed:
+
+.. sourcecode:: bash
+
+    ^CProcessed a total of 156 messages
+
+You can then start another consumer session as follows (or alternatively use a new console window), to see the changes delivered to the REP-TX.META topic, which contains the meta-data about all the changes made on the source.
 
 .. sourcecode:: bash
 
