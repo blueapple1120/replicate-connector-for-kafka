@@ -180,7 +180,12 @@ public class ReplicateRecordConverter implements ReplicateRecord, KafkaSchema
                 /* convert LOBs */
                 if (cdr.getValue() instanceof SerialBlob) {
                     SerialBlob sb = (SerialBlob) val;
-                    val = sb.getBytes(1, (int)sb.length());
+                    /* support empty BLOBs */
+                    val = (
+                        sb.length() == 0 
+                        ? new byte [] {}
+                        : sb.getBytes(1, (int)sb.length())
+                    );
                 }
                 struct.put (cdr.getName(), val);
             }

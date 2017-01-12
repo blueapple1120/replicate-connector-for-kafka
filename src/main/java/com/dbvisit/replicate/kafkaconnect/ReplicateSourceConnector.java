@@ -85,15 +85,9 @@ public class ReplicateSourceConnector extends SourceConnector {
         
         try {
             synchronized (plogMonitorThread) {
-                while (plogMonitorThread.isAlive() &&
-                       !plogMonitorThread.readyForTasks())
-                {
-                    logger.info (
-                        "Waiting for replication to start" 
-                    );
-
-                    plogMonitorThread.wait(plogMonitorThread.getTimeOut());
-                }
+                /* block until first batch of replicated schemas are ready */
+                logger.info ("Waiting for replication to start");
+                plogMonitorThread.wait();
                 
                 if (!plogMonitorThread.isAlive()) {
                     throw new Exception ("PLOG monitoring thread is done");

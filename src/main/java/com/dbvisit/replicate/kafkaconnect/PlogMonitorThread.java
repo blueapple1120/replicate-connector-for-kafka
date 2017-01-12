@@ -299,13 +299,22 @@ public class PlogMonitorThread extends Thread {
                     firstRun = false;
                 }
                 
+                /* monitor is either in startup or update mode */
                 if (startup) {
                     /* when in start up mode notify at end of PLOG so that 
                      * source connector can start tasks to handle 
                      * replication 
                      */ 
                     synchronized (this) {
-                        this.notifyAll();
+                        logger.debug (
+                            "Checking if replication is ready for tasks at " +
+                            "the end of PLOG: " + plog.getFileName() + " "   +
+                            "ready: " + readyForTasks()
+                        );
+                        
+                        if (readyForTasks()) {
+                            this.notifyAll();
+                        }
                     }
                 }
                 else {
@@ -428,7 +437,7 @@ public class PlogMonitorThread extends Thread {
      */
     public boolean readyForTasks () {
         /* not the first run and has replicated schema data to process */
-        return !firstRun && replicated.size() > 0;
+        return (!firstRun && replicated.size() > 0);
     }
     
     /** 
