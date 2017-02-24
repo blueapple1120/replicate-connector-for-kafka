@@ -48,7 +48,7 @@ master_doc = 'index'
 
 # General information about the project.
 project = u'Dbvisit Replicate Connector for Kafka'
-copyright = u'2016, Dbvisit Software Limited.'
+copyright = u'2017, Dbvisit Software Limited.'
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
