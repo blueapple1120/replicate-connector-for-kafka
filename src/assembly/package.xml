@@ -6,6 +6,7 @@
     <id>package</id>
     <formats>
         <format>zip</format>
+        <format>tar.gz</format>
     </formats>
     <includeBaseDirectory>false</includeBaseDirectory>
     <fileSets>
@@ -16,7 +17,6 @@
                 <include>README*</include>
                 <include>LICENSE*</include>
                 <include>NOTICE*</include>
-                <include>licenses/</include>
             </includes>
         </fileSet>
         <fileSet>
@@ -33,7 +33,6 @@
             <useProjectArtifact>true</useProjectArtifact>
             <useTransitiveFiltering>true</useTransitiveFiltering>
             <excludes>
-                <exclude>io.confluent:common-*</exclude>
                 <exclude>org.apache.kafka:connect-api</exclude>
             </excludes>
         </dependencySet>

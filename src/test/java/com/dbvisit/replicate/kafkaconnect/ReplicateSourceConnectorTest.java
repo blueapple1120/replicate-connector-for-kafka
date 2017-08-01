@@ -8,43 +8,69 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 
+import org.apache.kafka.connect.connector.ConnectorContext;
 import org.apache.kafka.connect.errors.ConnectException;
+import org.easymock.EasyMock;
+import org.easymock.TestSubject;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.powermock.api.easymock.PowerMock;
+import org.powermock.api.easymock.annotation.Mock;
+import org.powermock.modules.junit4.PowerMockRunner;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.dbvisit.replicate.kafkaconnect.util.ReplicateInfoTopic;
+
+@RunWith(PowerMockRunner.class)
 public class ReplicateSourceConnectorTest extends ReplicateTestConfig {
     private static final Logger logger = LoggerFactory.getLogger(
         ReplicateSourceConnectorTest.class
     );
-    
-    final ReplicateSourceConnector connector = new ReplicateSourceConnector() ;
+
+    @Mock ConnectorContext context;
+    @TestSubject
+    final ReplicateSourceConnector connector = new ReplicateSourceConnector();
 
     @Test
     public void testTaskClass() {
-      assertEquals(ReplicateSourceTask.class, connector.taskClass());
+        assertEquals(ReplicateSourceTask.class, connector.taskClass());
     }
     
     @Test(expected = ConnectException.class)
     public void testStartupWithInvalidPlogURI() throws Exception {
-      HashMap<String, String> props = new HashMap<>();
+        connector.initialize(context);
+        PowerMock.mockStatic (ReplicateInfoTopic.class);
+        EasyMock.expect (
+            ReplicateInfoTopic.composer()
+        ).andReturn(topicConfigurator);
+        PowerMock.replayAll();
+        HashMap<String, String> props = new HashMap<>();
       
-      props.put(
-          ReplicateSourceConnectorConfig.PLOG_LOCATION_CONFIG,
-          "http://www.google.com"
-      );
-      connector.start(props);
+        props.put(
+            ReplicateSourceConnectorConfig.PLOG_LOCATION_CONFIG,
+            "http://www.google.com"
+        );
+        connector.start(props);
     }
     
     @Test(expected = ConnectException.class)
     public void testStartupWithInvalidPlogDir() throws Exception {
-      HashMap<String, String> props = new HashMap<>();
+        connector.initialize(context);
+        PowerMock.mockStatic (ReplicateInfoTopic.class);
+        EasyMock.expect (
+            ReplicateInfoTopic.composer()
+        ).andReturn(topicConfigurator);
+        PowerMock.replayAll();
+        
+        HashMap<String, String> props = new HashMap<>();
       
-      props.put(
-          ReplicateSourceConnectorConfig.PLOG_LOCATION_CONFIG,
-          "-"
-      );
-      connector.start(props);
+        props.put(
+            ReplicateSourceConnectorConfig.PLOG_LOCATION_CONFIG,
+            "-"
+        );
+        connector.start(props);
     }
     
     @Test(expected = ConnectException.class)
@@ -55,13 +81,22 @@ public class ReplicateSourceConnectorTest extends ReplicateTestConfig {
     @Test
     public void testConfigureSingleTask() throws Exception {
         final int NUM_TASKS = 1;
+        connector.initialize(context);
+        PowerMock.mockStatic (ReplicateInfoTopic.class);
+        EasyMock.expect (
+            ReplicateInfoTopic.composer()
+        ).andReturn(topicConfigurator);
+        PowerMock.replayAll();
+        
         /* expect no errors and clean start/stop */
         connector.start(getConfigPropsForMultiSet());
         
         List<Map<String, String>> taskConfs = connector.taskConfigs(NUM_TASKS);
         connector.stop();
         
-        Map<String, String> expectedConf = getConfigPropsForSourceTask();
+        logger.info (taskConfs.toString());
+        
+        Map<String, String> expectedConf = getConfigPropsForSourceConnector();
         
         for (Map<String, String> taskConf : taskConfs) {
             for (String configKey : expectedConf.keySet()) {
@@ -86,13 +121,29 @@ public class ReplicateSourceConnectorTest extends ReplicateTestConfig {
         }
     }
     
+    // component integration test
     @Test
     public void testConfigureMultipleTasks() throws Exception {
         final int NUM_TASKS = 2;
-        /* expect no errors and clean start/stop */
-        connector.start(getConfigPropsForMultiSet());
+        connector.initialize(context);
+        PowerMock.mockStatic (ReplicateInfoTopic.class);
+        EasyMock.expect (
+            ReplicateInfoTopic.composer()
+        ).andReturn(topicConfigurator);
+        PowerMock.replayAll();
+
+        try {
+            /* expect no errors and clean start/stop */
+            connector.start(getConfigPropsForMultiSet());
+            PowerMock.verifyAll();
+        }
+        catch (Exception e) {
+            e.printStackTrace();
+            fail (e.getMessage());
+        }
         
         List<Map<String, String>> taskConfs = connector.taskConfigs(NUM_TASKS);
+
         connector.stop();
         
         List<Map<String, String>> expectedConfs =
@@ -101,7 +152,7 @@ public class ReplicateSourceConnectorTest extends ReplicateTestConfig {
         /* same config test fixture with replicate schemas split */
         final Map<String, String> commonConf = getConfigPropsForMultiSet();
         
-        final String []repJSONs = getConfigPropsForSourceTask().get (
+        final String []repJSONs = getConfigPropsForSourceConnector().get (
             ReplicateSourceTaskConfig.REPLICATED_CONFIG
         ).split (
             Pattern.quote(

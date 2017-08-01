@@ -3,9 +3,9 @@ package com.dbvisit.replicate.kafkaconnect;
 import static org.junit.Assert.*;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.LinkedHashMap;
-import java.util.LinkedList;
 import java.util.List;
 
 import org.apache.kafka.connect.data.Decimal;
@@ -20,6 +20,7 @@ import org.slf4j.LoggerFactory;
 
 import com.dbvisit.replicate.plog.domain.MetaDataRecord;
 import com.dbvisit.replicate.plog.metadata.Column;
+import com.dbvisit.replicate.plog.metadata.ColumnState;
 
 /**
  *  Test schema conversion only
@@ -29,13 +30,166 @@ public class ReplicateSchemaConversionTest extends ReplicateTestConfig {
         ReplicateSchemaConversionTest.class
     );
     
-    /** always 3 extra fields in payload to link message to TX */
-    final private int NUM_META_FIELDS = 3;
     final private String mockName = "MOCK-SOE.UNITTEST";
-
-    @SuppressWarnings("serial")
+    final private ConnectorMode defaultMode = new ConnectorMode (
+        ConnectorCDCFormat.CHANGEROW,
+        true,
+        true,
+        false
+    );
+    
+    /* test different modes of publishing */
     @Test
     public void testCreateAndUpdateSchema() {
+        /* default: changerow, txmeta */
+        testCreateAndUpdateSchema (
+            new ConnectorMode (
+                ConnectorCDCFormat.CHANGEROW,
+                true,
+                false,
+                false
+            )
+        );
+        /* changerow, txmeta, keys */
+        testCreateAndUpdateSchema (
+            new ConnectorMode (
+                ConnectorCDCFormat.CHANGEROW,
+                true,
+                true,
+                false
+            )
+        );
+        /* changerow, txmeta, keys, no schema evolution */
+        testCreateAndUpdateSchema (
+            new ConnectorMode (
+                ConnectorCDCFormat.CHANGEROW,
+                true,
+                true,
+                true
+            )
+        );
+        /* changerow, no txmeta, no keys */
+        testCreateAndUpdateSchema (
+            new ConnectorMode (
+                ConnectorCDCFormat.CHANGEROW,
+                false,
+                false,
+                false
+            )
+        );
+        /* changerow, no txmeta, keys */
+        testCreateAndUpdateSchema (
+            new ConnectorMode (
+                ConnectorCDCFormat.CHANGEROW,
+                false,
+                true,
+                false
+            )
+        );
+        /* changerow, no txmeta, keys, no schema evolution */
+        testCreateAndUpdateSchema (
+            new ConnectorMode (
+                ConnectorCDCFormat.CHANGEROW,
+                false,
+                true,
+                true
+            )
+        );
+        /* changerow, no txmeta, no keys, no schema evolution */
+        testCreateAndUpdateSchema (
+            new ConnectorMode (
+                ConnectorCDCFormat.CHANGEROW,
+                false,
+                false,
+                true
+            )
+        );
+        /* changerow, txmeta, no keys, no schema evolution */
+        testCreateAndUpdateSchema (
+            new ConnectorMode (
+                ConnectorCDCFormat.CHANGEROW,
+                true,
+                false,
+                true
+            )
+        );
+        
+        /* changeset, txmeta */
+        testCreateAndUpdateSchema (
+            new ConnectorMode (
+                ConnectorCDCFormat.CHANGESET,
+                true,
+                false,
+                false
+            )
+        );
+        /* changeset, txmeta, keys */
+        testCreateAndUpdateSchema (
+            new ConnectorMode (
+                ConnectorCDCFormat.CHANGESET,
+                true,
+                true,
+                false
+            )
+        );
+        /* changeset, txmeta, keys, no schema evolution */
+        testCreateAndUpdateSchema (
+            new ConnectorMode (
+                ConnectorCDCFormat.CHANGESET,
+                true,
+                true,
+                true
+            )
+        );
+        /* changeset, no txmeta, no keys */
+        testCreateAndUpdateSchema (
+            new ConnectorMode (
+                ConnectorCDCFormat.CHANGESET,
+                false,
+                false,
+                false
+            )
+        );
+        /* changeset, no txmeta, keys */
+        testCreateAndUpdateSchema (
+            new ConnectorMode (
+                ConnectorCDCFormat.CHANGESET,
+                false,
+                true,
+                false
+            )
+        );
+        /* changeset, no txmeta, no keys, no schema evolution */
+        testCreateAndUpdateSchema (
+            new ConnectorMode (
+                ConnectorCDCFormat.CHANGESET,
+                false,
+                false,
+                true
+            )
+        );
+        /* changeset, no txmeta, no keys, no schema evolution */
+        testCreateAndUpdateSchema (
+            new ConnectorMode (
+                ConnectorCDCFormat.CHANGESET,
+                false,
+                false,
+                true
+            )
+        );
+        /* chanegset, txmeta, no keys, no schema evolution */
+        testCreateAndUpdateSchema (
+            new ConnectorMode (
+                ConnectorCDCFormat.CHANGESET,
+                true,
+                false,
+                true
+            )
+        );
+    }
+
+    @SuppressWarnings("serial")
+    public void testCreateAndUpdateSchema(final ConnectorMode mode) {
         try {
             final String mockName = "MOCK-SOE.UNITTEST"; 
             
@@ -43,69 +197,162 @@ public class ReplicateSchemaConversionTest extends ReplicateTestConfig {
             MetaDataRecord mdr1 =
                 MetaDataRecord.fromJSONString(METADATA_RECORD_1_JSON);
             
-            Schema schema1 =
+            logger.info (mdr1.toJSONString());
+            
+            TopicSchema topicSchema1 =
                 new ReplicateSchemaConverter()
                     .topicName(mockName)
                     .metadata(mdr1.getMetaData())
+                    .mode(mode)
                     .convert();
             
-            logger.info ("In: " + mdr1.toJSONString());
+            Schema schema1 = topicSchema1.valueSchema();
             
+            logger.info ("In: " + mdr1.toJSONString());
             logger.info (
                 "Out: schema name=" + schema1.name() + " " +
                 "type=" + schema1.type()
             );
             
+            /* only used by change sets */
+            final Schema keySchema = Schema.STRING_SCHEMA;
+            final Schema valueSchema = SchemaBuilder.struct()
+                .name("CHANGE_SET")
+                .field (
+                    "ID", Schema.OPTIONAL_INT32_SCHEMA
+                )
+                .field (
+                    "TEST_NAME", Schema.OPTIONAL_STRING_SCHEMA
+                ).build();
+            
             validateSchema (
                 mdr1, 
-                schema1, 
-                new LinkedHashMap<String, Schema>() {{
-                    put ("XID", Schema.STRING_SCHEMA);
-                    put ("TYPE", Schema.STRING_SCHEMA);
-                    put ("CHANGE_ID", Schema.INT64_SCHEMA);
-                    put ("ID", Schema.INT32_SCHEMA);
-                    put ("TEST_NAME", Schema.OPTIONAL_STRING_SCHEMA);
-                }}    
+                schema1,
+                mode.getCDCFormat().equals (ConnectorCDCFormat.CHANGEROW) 
+                ?
+                    new LinkedHashMap<String, Schema>() {{
+                        /* add TXMETA field is enabled */
+                        if (mode.publishTxInfo()) {
+                            put ("XID", Schema.STRING_SCHEMA);
+                            put ("TYPE", Schema.STRING_SCHEMA);
+                            put ("CHANGE_ID", Schema.INT64_SCHEMA);
+                        }
+                        put ("ID", Schema.INT32_SCHEMA);
+                        put ("TEST_NAME", Schema.OPTIONAL_STRING_SCHEMA);
+                    }}   
+                :
+                    new LinkedHashMap<String, Schema>() {{
+                        /* add TXMETA field is enabled */
+                        if (mode.publishTxInfo()) {
+                            put ("XID", Schema.STRING_SCHEMA);
+                            put ("TYPE", Schema.STRING_SCHEMA);
+                            put ("CHANGE_ID", Schema.INT64_SCHEMA);
+                        }
+                        put (
+                            "CHANGE_DATA",
+                            SchemaBuilder.map (keySchema, valueSchema)
+                        );
+                    }}   
             );
             
             /* next create v2 of schema using v1 above and verify */
             MetaDataRecord mdr2 =
                 MetaDataRecord.fromJSONString(METADATA_RECORD_2_JSON);
             
-            Schema schema2 =
+            for (int i = 0; i < 3; i++) {
+                Column col = mdr2.getMetaData().getTableColumns().get(i);
+                if (i < 2) {
+                    /* existing column - set these columns as unchanged */
+                    col.setState(ColumnState.UNCHANGED);
+                }
+                else {
+                    /* new column */
+                    col.setState(ColumnState.ADDED);
+                }
+            }
+            
+            TopicSchema topicSchema2 =
                 new ReplicateSchemaConverter()
                     .topicName(mockName)
-                    .schema(schema1)
+                    .schema(topicSchema1)
                     .metadata(mdr2.getMetaData())
+                    .mode(mode)
                     .update();
+
+            Schema schema2 = topicSchema2.valueSchema();
             
             logger.info ("In: " + mdr2.toJSONString());
-            
             logger.info (
                 "Out: schema name=" + schema2.name() + " " +
                 "type=" + schema2.type()
             );
             
+            Schema updatedSchema = null;
+            
+            if (!mode.noSchemaEvolution()) {
+                updatedSchema = SchemaBuilder.struct()
+                    .name("CHANGE_SET")
+                    .field (
+                        "ID", Schema.OPTIONAL_INT32_SCHEMA
+                    )
+                    .field (
+                        "TEST_NAME", Schema.OPTIONAL_STRING_SCHEMA
+                    )
+                    .field (
+                        "SCORE", 
+                        Decimal.builder(4)
+                               .defaultValue(BigDecimal.ZERO.setScale(4))
+                               .build()
+                    ).build();
+            }
+            else {
+                /* schema stays the same */
+                updatedSchema = valueSchema;
+            }
+            
+            final Schema newValueSchema = updatedSchema;
+
             validateSchema (
                 mdr2,
                 schema2,
-                new LinkedHashMap<String, Schema>() {{
-                    put ("XID", Schema.STRING_SCHEMA);
-                    put ("TYPE", Schema.STRING_SCHEMA);
-                    put ("CHANGE_ID", Schema.INT64_SCHEMA);
-                    put ("ID", Schema.INT32_SCHEMA);
-                    put ("TEST_NAME", Schema.OPTIONAL_STRING_SCHEMA);
-                    /* decimal encoded as BYTES, in DDL it's mandatory field,
-                     * but in schema it has to have default value and be
-                     * nullable */
-                    put (
-                        "SCORE", 
-                        Decimal.builder(4)
-                               .optional()
-                               .defaultValue(BigDecimal.ZERO)
-                               .build()
-                    );
-                }}
+                mode.getCDCFormat().equals (ConnectorCDCFormat.CHANGEROW) 
+                ?
+                    new LinkedHashMap<String, Schema>() {{
+                        /* add TXMETA field is enabled */
+                        if (mode.publishTxInfo()) {
+                            put ("XID", Schema.STRING_SCHEMA);
+                            put ("TYPE", Schema.STRING_SCHEMA);
+                            put ("CHANGE_ID", Schema.INT64_SCHEMA);
+                        }
+                        put ("ID", Schema.INT32_SCHEMA);
+                        put ("TEST_NAME", Schema.OPTIONAL_STRING_SCHEMA);
+                        /* add new field if schema evolution is enabled */
+                        if (!mode.noSchemaEvolution()) {
+                            /* decimal encoded as BYTES, in DDL it's mandatory field,
+                             * but in schema it has to have default value and be
+                             * nullable */
+                            put (
+                                "SCORE", 
+                                Decimal.builder(4)
+                                       .defaultValue(BigDecimal.ZERO.setScale(4))
+                                       .build()
+                            );
+                        }
+                    }}
+                :
+                    new LinkedHashMap<String, Schema>() {{
+                        /* add TXMETA field is enabled */
+                        if (mode.publishTxInfo()) {
+                            put ("XID", Schema.STRING_SCHEMA);
+                            put ("TYPE", Schema.STRING_SCHEMA);
+                            put ("CHANGE_ID", Schema.INT64_SCHEMA);
+                        }
+                        put (
+                            "CHANGE_DATA",
+                            SchemaBuilder.map (keySchema, newValueSchema)
+                        );
+                    }}   
+                        
             );
         }
         catch (Exception e) {
@@ -114,7 +361,6 @@ public class ReplicateSchemaConversionTest extends ReplicateTestConfig {
         }
     }
     
-    @SuppressWarnings("serial")
     public void validateSchema (
         final MetaDataRecord mdr,
         final Schema schema,
@@ -133,7 +379,8 @@ public class ReplicateSchemaConversionTest extends ReplicateTestConfig {
         final List<Column> expectedColumns = 
             mdr.getMetaData().getTableColumns();
         
-        int expectedNumFields = expectedColumns.size() + NUM_META_FIELDS;
+        /* expect same as defined for field schemas */
+        int expectedNumFields = fieldSchemas.size();
         
         assertTrue (
             "Expecting " + expectedNumFields + ", got: " +
@@ -142,15 +389,8 @@ public class ReplicateSchemaConversionTest extends ReplicateTestConfig {
         );
         
         /* extra in all of the payload and must always be present */
-        List <String> expectedFields = new LinkedList<String>() {{
-            add ("XID");
-            add ("TYPE");
-            add ("CHANGE_ID");
-        }};
-        
-        for (Column expectedColumn : expectedColumns) {
-            expectedFields.add (expectedColumn.getName());
-        }
+        List <String> expectedFields = 
+            new ArrayList<String> (fieldSchemas.keySet());
         
         for (int i = 0; i < expectedFields.size(); i++) { 
             String expectedField = expectedFields.get (i);
@@ -176,6 +416,9 @@ public class ReplicateSchemaConversionTest extends ReplicateTestConfig {
             
             Field field = schema.field (expectedField);
             Schema expectedSchema = fieldSchemas.get(expectedField);
+            
+            /* extra fields if TX META is enabled */
+            int extraFields = fieldSchemas.size() - expectedColumns.size();
             
             assertTrue (
                 "Expecting field: " + expectedField + " with schema type=" +
@@ -203,8 +446,11 @@ public class ReplicateSchemaConversionTest extends ReplicateTestConfig {
                         field.schema().defaultValue() != null &&
                         (
                             !field.schema().type().equals (Type.BYTES) ||
-                            expectedColumns.get(i - NUM_META_FIELDS).getType()
-                                .equals("NUMBER")
+                            (
+                                i >= extraFields &&
+                                expectedColumns.get(i - extraFields).getType()
+                                    .equals("NUMBER")
+                            )
                         )
                         &&
                         field.schema().defaultValue().equals(
@@ -215,7 +461,8 @@ public class ReplicateSchemaConversionTest extends ReplicateTestConfig {
                         field.schema().defaultValue() != null &&
                         (
                             field.schema().type().equals (Type.BYTES) &&
-                            !expectedColumns.get(i - NUM_META_FIELDS).getType()
+                            i >= extraFields &&
+                            !expectedColumns.get(i - extraFields).getType()
                                 .equals("NUMBER")
                         ) &&
                         ((byte [])field.schema().defaultValue()).length == 0
@@ -271,10 +518,10 @@ public class ReplicateSchemaConversionTest extends ReplicateTestConfig {
     
     @Test 
     public void testUpdateNumberInt32  () {
-        /* force in NOT-NULL, expect DEFAULT VALUE -1 and NULLABLE for INT32 */
+        /* force in NOT-NULL, expect DEFAULT VALUE 0 and NOT-NULL for INT32 */
         testUpdateSchema (
             new Column(0, "TEST", "NUMBER", 6, 0, false),
-            SchemaBuilder.int32().optional().defaultValue(-1).build()
+            SchemaBuilder.int32().defaultValue(0).build()
         );      
     }
     
@@ -296,10 +543,10 @@ public class ReplicateSchemaConversionTest extends ReplicateTestConfig {
     
     @Test 
     public void testUpdateNumberInt64  () {
-        /* force in NOT-NULL, expect DEFAULT VALUE -1 and NULLABLE for INT64 */
+        /* force in NOT-NULL, expect DEFAULT VALUE O and NOT-NULL for INT64 */
         testUpdateSchema (
             new Column(0, "TEST", "NUMBER", 18, 0, false),
-            SchemaBuilder.int64().optional().defaultValue(-1L).build()
+            SchemaBuilder.int64().defaultValue(0L).build()
         );      
     }
     
@@ -321,12 +568,11 @@ public class ReplicateSchemaConversionTest extends ReplicateTestConfig {
     
     @Test 
     public void testUpdateNumber () {
-        /* force in NOT-NULL, expect DEFAULT VALUE -1 and NULLABLE for INT64 */
+        /* force in NOT-NULL, expect DEFAULT VALUE 0 and NOT-NULL for INT64 */
         testUpdateSchema (
             new Column(0, "TEST", "NUMBER", 28, 10, false),
             Decimal.builder(10)
-                   .optional()
-                   .defaultValue(new BigDecimal(0))
+                   .defaultValue(new BigDecimal(0).setScale(10))
                    .build()
         );      
     }
@@ -350,10 +596,10 @@ public class ReplicateSchemaConversionTest extends ReplicateTestConfig {
     
     @Test 
     public void testUpdateVarchar2 () {
-        /* force in NOT-NULL, expect DEFAULT VALUE and NULLABLE for STRING */
+        /* force in NOT-NULL, expect DEFAULT VALUE and NOT-NULL for STRING */
         testUpdateSchema (
             new Column(0, "TEST", "VARCHAR2", -1, -1, false),
-            SchemaBuilder.string().optional().defaultValue("").build()
+            SchemaBuilder.string().defaultValue("").build()
         );      
     }
     
@@ -376,10 +622,10 @@ public class ReplicateSchemaConversionTest extends ReplicateTestConfig {
     
     @Test 
     public void testUpdateVarchar () {
-        /* force in NOT-NULL, expect DEFAULT VALUE and NULLABLE for STRING */
+        /* force in NOT-NULL, expect DEFAULT VALUE and NOT-NULL for STRING */
         testUpdateSchema (
             new Column(0, "TEST", "VARCHAR", -1, -1, false),
-            SchemaBuilder.string().optional().defaultValue("").build()
+            SchemaBuilder.string().defaultValue("").build()
         );      
     }
   
@@ -401,10 +647,10 @@ public class ReplicateSchemaConversionTest extends ReplicateTestConfig {
     
     @Test 
     public void testUpdateChar () {
-        /* force in NOT-NULL, expect DEFAULT VALUE and NULLABLE for STRING */
+        /* force in NOT-NULL, expect DEFAULT VALUE and NOT-NULL for STRING */
         testUpdateSchema (
             new Column(0, "TEST", "CHAR", -1, -1, false),
-            SchemaBuilder.string().optional().defaultValue("").build()
+            SchemaBuilder.string().defaultValue("").build()
         );      
     }
   
@@ -426,10 +672,10 @@ public class ReplicateSchemaConversionTest extends ReplicateTestConfig {
     
     @Test 
     public void testUpdateNvarchar2 () {
-        /* force in NOT-NULL, expect DEFAULT VALUE and NULLABLE for STRING */
+        /* force in NOT-NULL, expect DEFAULT VALUE and NOT-NULL for STRING */
         testUpdateSchema (
             new Column(0, "TEST", "NVARCHAR2", -1, -1, false),
-            SchemaBuilder.string().optional().defaultValue("").build()
+            SchemaBuilder.string().defaultValue("").build()
         );      
     }
   
@@ -451,10 +697,10 @@ public class ReplicateSchemaConversionTest extends ReplicateTestConfig {
     
     @Test 
     public void testUpdateNvarchar () {
-        /* force in NOT-NULL, expect DEFAULT VALUE and NULLABLE for STRING */
+        /* force in NOT-NULL, expect DEFAULT VALUE and NOT-NULL for STRING */
         testUpdateSchema (
             new Column(0, "TEST", "NVARCHAR", -1, -1, false),
-            SchemaBuilder.string().optional().defaultValue("").build()
+            SchemaBuilder.string().defaultValue("").build()
         );      
     }
   
@@ -476,10 +722,10 @@ public class ReplicateSchemaConversionTest extends ReplicateTestConfig {
     
     @Test 
     public void testUpdateNchar () {
-        /* force in NOT-NULL, expect DEFAULT VALUE and NULLABLE for STRING */
+        /* force in NOT-NULL, expect DEFAULT VALUE and NOT-NULL for STRING */
         testUpdateSchema (
             new Column(0, "TEST", "NCHAR", -1, -1, false),
-            SchemaBuilder.string().optional().defaultValue("").build()
+            SchemaBuilder.string().defaultValue("").build()
         );      
     }
   
@@ -501,10 +747,10 @@ public class ReplicateSchemaConversionTest extends ReplicateTestConfig {
     
     @Test 
     public void testUpdateLong () {
-        /* force in NOT-NULL, expect DEFAULT VALUE and NULLABLE for STRING */
+        /* force in NOT-NULL, expect DEFAULT VALUE and NOT-NULL for STRING */
         testUpdateSchema (
             new Column(0, "TEST", "LONG", -1, -1, false),
-            SchemaBuilder.string().optional().defaultValue("").build()
+            SchemaBuilder.string().defaultValue("").build()
         );      
     }
   
@@ -526,10 +772,10 @@ public class ReplicateSchemaConversionTest extends ReplicateTestConfig {
     
     @Test 
     public void testUpdateIntervalDayToSecond () {
-        /* force in NOT-NULL, expect DEFAULT VALUE and NULLABLE for STRING */
+        /* force in NOT-NULL, expect DEFAULT VALUE and NOT-NULL for STRING */
         testUpdateSchema (
             new Column(0, "TEST", "INTERVAL DAY TO SECOND", -1, -1, false),
-            SchemaBuilder.string().optional().defaultValue("").build()
+            SchemaBuilder.string().defaultValue("").build()
         );      
     }
   
@@ -551,10 +797,10 @@ public class ReplicateSchemaConversionTest extends ReplicateTestConfig {
     
     @Test 
     public void testUpdateIntervalDayToMonth () {
-        /* force in NOT-NULL, expect DEFAULT VALUE and NULLABLE for STRING */
+        /* force in NOT-NULL, expect DEFAULT VALUE and NOT-NULL for STRING */
         testUpdateSchema (
             new Column(0, "TEST", "INTERVAL YEAR TO MONTH", -1, -1, false),
-            SchemaBuilder.string().optional().defaultValue("").build()
+            SchemaBuilder.string().defaultValue("").build()
         );      
     }
     
@@ -576,11 +822,10 @@ public class ReplicateSchemaConversionTest extends ReplicateTestConfig {
     
     @Test 
     public void testUpdateClob () {
-        /* force in NOT-NULL, expect DEFAULT VALUE and NULLABLE for BYTES */
+        /* force in NOT-NULL, expect DEFAULT VALUE and NOT-NULL for BYTES */
         testUpdateSchema (
             new Column(0, "TEST", "CLOB", -1, -1, false),
             SchemaBuilder.string()
-                         .optional()
                          .defaultValue("")
                          .build()
         );      
@@ -604,11 +849,10 @@ public class ReplicateSchemaConversionTest extends ReplicateTestConfig {
     
     @Test 
     public void testUpdateNclob () {
-        /* force in NOT-NULL, expect DEFAULT VALUE and NULLABLE for BYTES */
+        /* force in NOT-NULL, expect DEFAULT VALUE and NOT-NULL for BYTES */
         testUpdateSchema (
             new Column(0, "TEST", "NCLOB", -1, -1, false),
             SchemaBuilder.string()
-                         .optional()
                          .defaultValue("")
                          .build()
         );      
@@ -632,10 +876,10 @@ public class ReplicateSchemaConversionTest extends ReplicateTestConfig {
     
     @Test 
     public void testUpdateDate () {
-        /* force in NOT-NULL, expect DEFAULT VALUE and NULLABLE for TIMESTAMP */
+        /* force in NOT-NULL, expect DEFAULT VALUE and NOT-NULL for TIMESTAMP */
         testUpdateSchema (
             new Column(0, "TEST", "DATE", -1, -1, false),
-            Timestamp.builder().optional().defaultValue(new Date(0)).build()
+            Timestamp.builder().defaultValue(new Date(0)).build()
         );      
     }
   
@@ -657,10 +901,10 @@ public class ReplicateSchemaConversionTest extends ReplicateTestConfig {
     
     @Test 
     public void testUpdateTimestamp () {
-        /* force in NOT-NULL, expect DEFAULT VALUE and NULLABLE for TIMESTAMP */
+        /* force in NOT-NULL, expect DEFAULT VALUE and NOT-NULL for TIMESTAMP */
         testUpdateSchema (
             new Column(0, "TEST", "TIMESTAMP", -1, -1, false),
-            Timestamp.builder().optional().defaultValue(new Date(0)).build()
+            Timestamp.builder().defaultValue(new Date(0)).build()
         );      
     }
   
@@ -682,10 +926,10 @@ public class ReplicateSchemaConversionTest extends ReplicateTestConfig {
     
     @Test 
     public void testUpdateTimestampWithTZ () {
-        /* force in NOT-NULL, expect DEFAULT VALUE and NULLABLE for TIMESTAMP */
+        /* force in NOT-NULL, expect DEFAULT VALUE and NOT-NULL for TIMESTAMP */
         testUpdateSchema (
             new Column(0, "TEST", "TIMESTAMP WITH TIME ZONE", -1, -1, false),
-            Timestamp.builder().optional().defaultValue(new Date(0)).build()
+            Timestamp.builder().defaultValue(new Date(0)).build()
         );      
     }
   
@@ -707,10 +951,10 @@ public class ReplicateSchemaConversionTest extends ReplicateTestConfig {
     
     @Test 
     public void testUpdateTimestampWithLocalTZ () {
-        /* force in NOT-NULL, expect DEFAULT VALUE and NULLABLE for TIMESTAMP */
+        /* force in NOT-NULL, expect DEFAULT VALUE and NOT NULL for TIMESTAMP */
         testUpdateSchema (
             new Column(0, "TEST", "TIMESTAMP WITH LOCAL TIME ZONE", -1, -1, false),
-            Timestamp.builder().optional().defaultValue(new Date(0)).build()
+            Timestamp.builder().defaultValue(new Date(0)).build()
         );      
     }
     
@@ -732,11 +976,10 @@ public class ReplicateSchemaConversionTest extends ReplicateTestConfig {
     
     @Test 
     public void testUpdateBlob () {
-        /* force in NOT-NULL, expect DEFAULT VALUE and NULLABLE for BYTES */
+        /* force in NOT-NULL, expect DEFAULT VALUE and NOT NULL for BYTES */
         testUpdateSchema (
             new Column(0, "TEST", "BLOB", -1, -1, false),
             SchemaBuilder.bytes()
-                         .optional()
                          .defaultValue(new byte[] {})
                          .build()
         );      
@@ -760,11 +1003,10 @@ public class ReplicateSchemaConversionTest extends ReplicateTestConfig {
     
     @Test 
     public void testUpdateRaw () {
-        /* force in NOT-NULL, expect DEFAULT VALUE and NULLABLE for BYTES */
+        /* force in NOT-NULL, expect DEFAULT VALUE and NOT NULL for BYTES */
         testUpdateSchema (
             new Column(0, "TEST", "RAW", -1, -1, false),
             SchemaBuilder.bytes()
-                         .optional()
                          .defaultValue(new byte[] {})
                          .build()
         );      
@@ -788,11 +1030,10 @@ public class ReplicateSchemaConversionTest extends ReplicateTestConfig {
     
     @Test 
     public void testUpdateLongRaw () {
-        /* force in NOT-NULL, expect DEFAULT VALUE and NULLABLE for BYTES */
+        /* force in NOT-NULL, expect DEFAULT VALUE and NOT-NULL for BYTES */
         testUpdateSchema (
             new Column(0, "TEST", "LONG RAW", -1, -1, false),
             SchemaBuilder.bytes()
-                         .optional()
                          .defaultValue(new byte[] {})
                          .build()
         );      
@@ -815,11 +1056,13 @@ public class ReplicateSchemaConversionTest extends ReplicateTestConfig {
             
             logger.info ("In: " + mdr.toJSONString());
             
-            Schema schema =
+            TopicSchema topicSchema =
                 new ReplicateSchemaConverter()
                     .topicName(mockName)
                     .metadata(mdr.getMetaData())
+                    .mode(defaultMode)
                     .convert();
+            Schema schema = topicSchema.valueSchema();
             
             logger.info (
                 "Out: schema name=" + schema.name() + " " +
@@ -857,29 +1100,42 @@ public class ReplicateSchemaConversionTest extends ReplicateTestConfig {
             
             logger.info ("In: " + mdr.toJSONString());
             
-            Schema schema =
+            TopicSchema topicSchema =
                 new ReplicateSchemaConverter()
                     .topicName(mockName)
                     .metadata(mdr.getMetaData())
+                    .mode(defaultMode)
                     .convert();
+            
+            Schema schema = topicSchema.valueSchema();
             
             /* add incoming column definition, pretend it's an update to
              * trigger default value
              */
+            for (Column col : mdr.getMetaData().getTableColumns()) {
+                /* set these columns as unchanged */
+                col.setState(ColumnState.UNCHANGED);
+            }
             mdr.getMetaData().getTableColumns().add (inColumnDef);
             mdr.getMetaData().getColumns().put (0, inColumnDef);
             
+            inColumnDef.setState(ColumnState.ADDED);
+            
             /* fake an update */
-            schema = new ReplicateSchemaConverter()
+            topicSchema = new ReplicateSchemaConverter()
                .topicName(mockName)
-               .schema(schema)
+               .schema(topicSchema)
                .metadata(mdr.getMetaData())
+               .mode(defaultMode)
                .update();
             
             logger.info (
                 "Out: schema name=" + schema.name() + " " +
                 "type=" + schema.type()
             );
+            
+            /* overwrite with new updated value schema */
+            schema = topicSchema.valueSchema();
             
             validateSchema (
                 mdr,

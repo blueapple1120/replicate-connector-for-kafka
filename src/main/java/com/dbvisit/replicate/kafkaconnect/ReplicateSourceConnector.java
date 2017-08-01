@@ -41,7 +41,7 @@ public class ReplicateSourceConnector extends SourceConnector {
     /** Configuration properties */
     private Map <String, String> configProps;
     /** PLOG monitor */
-    private PlogMonitorThread plogMonitorThread;
+    private PlogMonitorThread monitorThread;
 
     private static final Logger logger = LoggerFactory.getLogger(
         ReplicateSourceConnector.class
@@ -67,10 +67,12 @@ public class ReplicateSourceConnector extends SourceConnector {
     public void start (Map<String, String> props) throws ConnectException {
         try {
             configProps = props;
-            plogMonitorThread = new PlogMonitorThread(
-                context, 
-                configProps
-            );
+            
+            logger.debug ("Creating PLOG monitor");
+            monitorThread = PlogMonitorThread.composer()
+                .configure(configProps)
+                .context(context) 
+                .build();
         } catch (Exception e) {
             throw new ConnectException(
                 "Couldn't start ReplicateSourceConnector due to " + 
@@ -78,34 +80,17 @@ public class ReplicateSourceConnector extends SourceConnector {
             );
         }
         
-        logger.debug ("Starting PLOG monitoring thread");
+        /* start monitoring meta data for replicated tables in PLOGs */
+        logger.debug ("Starting PLOG monitor");
+        monitorThread.start();
         
-        /* start monitoring prepared tables in PLOGs */
-        plogMonitorThread.start();
-        
-        try {
-            synchronized (plogMonitorThread) {
-                /* block until first batch of replicated schemas are ready */
-                logger.info ("Waiting for replication to start");
-                plogMonitorThread.wait();
-                
-                if (!plogMonitorThread.isAlive()) {
-                    throw new Exception ("PLOG monitoring thread is done");
-                }
-                
-                /* tasks will now be started and ready to start monitoring
-                 * updates to schema registry */
-                plogMonitorThread.startupDone();
-            }
-            
-            logger.info ("PLOG monitoring thread started");
-        } catch (Exception e) {
+        if (!monitorThread.active()) {
             throw new ConnectException (
-                "Failed to wait for replicated schemas: " + e.getMessage()
+                "PLOG monitor is not running, cannot continue"
             );
         }
     }
-
+    
     /**
      * Returns the task implementation for this connector
      * 
@@ -130,17 +115,22 @@ public class ReplicateSourceConnector extends SourceConnector {
         List<Map<String, String>> taskConfigs = null;
         
         try {
-            List<String> replicated = plogMonitorThread.replicatedSchemas();
-
-            int numGroups = Math.min(replicated.size(), maxTasks);
+            List<String> configs = monitorThread.taskConfigs();
+            
+            logger.debug (
+                "Source connector received task configuration: " +
+                configs.toString() + " from PLOG monitor"
+            );
+            
+            int numGroups = Math.min(configs.size(), maxTasks);
             
             List<List<String>> groups = 
-                ConnectorUtils.groupPartitions(replicated, numGroups);
+                ConnectorUtils.groupPartitions(configs, numGroups);
             
             taskConfigs = new ArrayList<>(groups.size());
 
             for (List<String> group : groups) {
-                logger.debug ("Adding replicate config : " + group);
+                logger.debug ("Adding replicate task config : " + group);
                 
                 Map<String, String> taskProps = new HashMap<>(configProps);
                 taskProps.put (
@@ -151,7 +141,14 @@ public class ReplicateSourceConnector extends SourceConnector {
             }
         }
         catch (Exception e) {
-            logger.error (e.getMessage());
+            if (e instanceof InterruptedException) {
+                /* interrupted for shutdown, return empty list */
+                taskConfigs = new ArrayList<>();
+            }
+            else {
+                logger.error (e.getMessage());
+                context.raiseError(e);
+            }
         }
         
         return taskConfigs;
@@ -161,15 +158,14 @@ public class ReplicateSourceConnector extends SourceConnector {
      * Stop the replicate source connector which includes shutting down
      * the monitoring of PLOGs
      * 
-     *  @throws ConnectException when shutting down failed
+     * @throws ConnectException when shutting down failed
      */
     @Override
     public void stop () throws ConnectException {
-        logger.debug ("Stopping PLOG monitoring thread");
-        plogMonitorThread.shutdown();
+        monitorThread.shutdown();
         
         try {
-            plogMonitorThread.join(plogMonitorThread.getTimeOut());
+            monitorThread.join(monitorThread.getTimeOut());
         } catch (InterruptedException e) {
             /* ignore */
         }

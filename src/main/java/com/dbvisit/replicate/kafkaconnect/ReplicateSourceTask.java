@@ -32,9 +32,6 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
 
-
-import io.confluent.common.config.ConfigException;
-
 import com.dbvisit.replicate.kafkaconnect.util.Version;
 import com.dbvisit.replicate.plog.config.PlogConfig;
 import com.dbvisit.replicate.plog.domain.DomainRecord;
@@ -42,7 +39,8 @@ import com.dbvisit.replicate.plog.domain.DomainRecordType;
 import com.dbvisit.replicate.plog.domain.ReplicateOffset;
 import com.dbvisit.replicate.plog.domain.ReplicateInfo;
 import com.dbvisit.replicate.plog.domain.parser.DomainParser;
-import com.dbvisit.replicate.plog.domain.parser.LogicalChangeParser;
+import com.dbvisit.replicate.plog.domain.parser.ChangeRowParser;
+import com.dbvisit.replicate.plog.domain.parser.ChangeSetParser;
 import com.dbvisit.replicate.plog.domain.parser.MetaDataParser;
 import com.dbvisit.replicate.plog.domain.parser.ProxyDomainParser;
 import com.dbvisit.replicate.plog.domain.parser.TransactionInfoParser;
@@ -50,12 +48,14 @@ import com.dbvisit.replicate.plog.file.PlogFile;
 import com.dbvisit.replicate.plog.file.PlogFileManager;
 import com.dbvisit.replicate.plog.format.EntrySubType;
 import com.dbvisit.replicate.plog.format.EntryType;
-import com.dbvisit.replicate.plog.format.parser.Parser.StreamClosedException;
+import com.dbvisit.replicate.plog.format.parser.FormatParser.StreamClosedException;
 import com.dbvisit.replicate.plog.metadata.DDLMetaData;
 import com.dbvisit.replicate.plog.reader.DomainReader;
+import com.dbvisit.replicate.plog.reader.DomainReader.DomainReaderBuilder;
 import com.dbvisit.replicate.plog.reader.PlogStreamReader;
 import com.dbvisit.replicate.plog.reader.criteria.AndCriteria;
 import com.dbvisit.replicate.plog.reader.criteria.Criteria;
+import com.dbvisit.replicate.plog.reader.criteria.InternalDDLFilterCriteria;
 import com.dbvisit.replicate.plog.reader.criteria.SchemaCriteria;
 import com.dbvisit.replicate.plog.reader.criteria.SchemaOffsetCriteria;
 import com.dbvisit.replicate.plog.reader.criteria.SystemChangeNumberCriteria;
@@ -79,12 +79,6 @@ public class ReplicateSourceTask extends SourceTask {
     public static final String REPLICATE_NAME_KEY = "replicate";
     /** Message offsets key */
     public static final String REPLICATE_OFFSET_KEY = "position";
-    /** Transaction ID field for every kafka message */
-    public static final String METADATA_TRANSACTION_ID_FIELD = "XID";
-    /** Transaction change type field for every kafka message */
-    public static final String METADATA_CHANGE_TYPE_FIELD = "TYPE";
-    /** Transaction change ID field for every kafka message */
-    public static final String METADATA_CHANGE_ID_FIELD = "CHANGE_ID";
     /** Stop flag */
     private AtomicBoolean stop;
     /** Manages PLOG files on disk */
@@ -96,23 +90,15 @@ public class ReplicateSourceTask extends SourceTask {
     /** Identifier of the aggregate transaction info topic */
     private String txInfoTopic;
     /** Cached schema definitions by topic identifier */
-    private Map<String, Schema> schemas;
+    private Map<String, TopicSchema> schemas;
     /** Tracks the SCN values of incoming replicated schemas */
     private Map<String, Long> schemaValidity;
     /** Flag to indicate when to build kafka schema cache */
     private boolean buildSchema = true;
-    /** Parsers for domain objects */
-    private Map<EntryType, DomainParser[]> domainParsers;
     /** Identify a domain reader as aggregating information */
     private boolean aggregateReader = false;
-    /** Criteria for parsing data from PLOGs */
-    @SuppressWarnings("rawtypes")
-    private Criteria criteria = null;
-    /** Criteria for post filtering parsed data from PLOGs, 
-     *  used for aggregates
-     */
-    @SuppressWarnings("rawtypes")
-    private Criteria filterCriteria = null;
+    /** Record publishing mode for replicate source connector */
+    private ConnectorMode connectorMode;
     
     /** 
      * Return version of replicate source connector for kafka
@@ -134,7 +120,7 @@ public class ReplicateSourceTask extends SourceTask {
     public void start(Map<String, String> props) {
         try {
             config = new ReplicateSourceTaskConfig (props);
-        } catch (ConfigException e) {
+        } catch (Exception e) {
             if (logger.isDebugEnabled()) {
                 logger.debug ("Cause: ", e);
             }
@@ -147,7 +133,7 @@ public class ReplicateSourceTask extends SourceTask {
         }
         
         /* use schema cache to validate DDL changes during replicate */
-        schemas = new HashMap<String, Schema>();
+        schemas = new HashMap<String, TopicSchema>();
         /* cache the last valid from SCNs for each replicated schema */
         schemaValidity = new HashMap<String, Long>();
         
@@ -181,16 +167,67 @@ public class ReplicateSourceTask extends SourceTask {
             topicPrefix = "";
         }
         
-        txInfoTopic = config.getString(
-            ReplicateSourceConnectorConfig.
-            TOPIC_NAME_TRANSACTION_INFO_CONFIG
+        /* Configure CDC format to publish */
+        String cdcFormatStr = config.getString(
+            ReplicateSourceConnectorConfig.CONNECTOR_PUBLISH_CDC_FORMAT_CONFIG
         );
         
-        if (txInfoTopic == null) {
-            txInfoTopic = 
-                ReplicateSourceConnectorConfig.
-                TOPIC_NAME_TRANSACTION_INFO_DEFAULT;
+        ConnectorCDCFormat cdcFormat;
+        
+        if (cdcFormatStr.equals (ConnectorCDCFormat.CHANGEROW.toString())) 
+        {
+            cdcFormat = ConnectorCDCFormat.CHANGEROW;
         }
+        else if (cdcFormatStr.equals (ConnectorCDCFormat.CHANGESET.toString()))
+        {
+            cdcFormat = ConnectorCDCFormat.CHANGESET;
+        }
+        else {
+            throw new ConnectException (
+                "Invalid configuration: Supported modes for " + 
+                ReplicateSourceConnectorConfig.
+                CONNECTOR_PUBLISH_CDC_FORMAT_CONFIG + 
+                " is " + 
+                ConnectorCDCFormat.values()
+            );
+        }
+        
+        /* Configure whether not transaction info meta data should be 
+         * published */
+        Boolean publishTxInfo = config.getBoolean(
+            ReplicateSourceConnectorConfig.CONNECTOR_PUBLISH_TX_INFO_CONFIG
+        );
+        
+        if (publishTxInfo) {
+            /* only read configuration for transaction info topic name if
+             * transaction info meta data will be published */
+            txInfoTopic = config.getString(
+                ReplicateSourceConnectorConfig.
+                TOPIC_NAME_TRANSACTION_INFO_CONFIG
+            );
+        }
+        
+        logger.debug ("Publishing transaction info: " + publishTxInfo);
+
+        /* Configure whether not topics should be publish their record keys */
+        Boolean publishKeys = config.getBoolean(
+            ReplicateSourceConnectorConfig.CONNECTOR_PUBLISH_KEYS_CONFIG
+        );
+        
+        logger.debug ("Publishing message keys: " + publishKeys);
+        
+        /* Configure whether not topics should allow schema evolution */
+        Boolean noSchemaEvolution = config.getBoolean (
+            ReplicateSourceConnectorConfig.CONNECTOR_PUBLISH_NO_SCHEMA_EVOLUTION_CONFIG
+        );
+        
+        /* setup connector mode */
+        connectorMode = new ConnectorMode(
+            cdcFormat,
+            publishTxInfo,
+            publishKeys,
+            noSchemaEvolution
+        );
         
         /* if specified, use this as the filter SCN for all replicated 
          * records in PLOG
@@ -199,8 +236,8 @@ public class ReplicateSourceTask extends SourceTask {
             ReplicateSourceConnectorConfig.GLOBAL_SCN_COLD_START_CONFIG
         );
         
-        long startPlog = -1L;
-        long plogUID   = -1L;
+        long startUID = -1L;
+        long plogUID  = -1L;
         
         /* start offset for each PLOG, not per table but per group */
         final Map <Long, Long> plogOffsets = 
@@ -219,11 +256,10 @@ public class ReplicateSourceTask extends SourceTask {
         
         /* kafka reader offsets */
         Map<Map<String, String>, Map<String, Object>> offsets = null;
+        Map<String, Boolean> repSchemas = 
+            new HashMap<String, Boolean> (repJSONs.length);
         
         try {
-            Map<String, Boolean> repSchemas = 
-                new HashMap<String, Boolean> (repJSONs.length);
-            
             for (String repJSON : repJSONs) {
                 /* maybe one prepared/replicated table per task or multiple
                  * find the first PLOG and start offset of all tables to read
@@ -241,16 +277,16 @@ public class ReplicateSourceTask extends SourceTask {
                     )
                 );
                 
-                if (startPlog == -1) {
+                if (startUID == -1) {
                     plogUID   = rep.getPlogUID();
-                    startPlog = plogUID;
+                    startUID = plogUID;
                     plogOffsets.put (plogUID, rep.getDataOffset());
                 }
                 else {
                     plogUID   = rep.getPlogUID();
-                    startPlog = startPlog > plogUID
+                    startUID = startUID > plogUID
                                 ? plogUID 
-                                : startPlog;
+                                : startUID;
                     
                     if (!plogOffsets.containsKey (plogUID) || 
                         rep.getDataOffset() < plogOffsets.get (plogUID)) 
@@ -269,11 +305,9 @@ public class ReplicateSourceTask extends SourceTask {
                 }
             }
             
-            initDomainParsers(repSchemas);
-            
             /* fetch the offsets for each partition 
              * 
-             * when task are reconfigured check which PLOG/offset to use
+             * when tasks are reconfigured check which PLOG/offset to use
              * as start, either the ones provided by monitor or the
              * ones stored by kafka
              * 
@@ -282,6 +316,29 @@ public class ReplicateSourceTask extends SourceTask {
             offsets = context.offsetStorageReader().offsets(partitions);
             
             long groupPlogUID = -1L;
+
+            /* schemas configured to be treated as if they were static */
+            List<String> staticSchemas = config.getList(
+                ReplicateSourceConnectorConfig.TOPIC_STATIC_SCHEMAS
+            );
+            
+            /* static offset age read from source connector configuration */
+            Integer staticOffsetAge = null;
+            
+            if (staticSchemas != null && !staticSchemas.isEmpty()) {
+                staticOffsetAge = config.getInt(
+                    ReplicateSourceConnectorConfig.TOPIC_STATIC_OFFSETS_AGE_DAYS
+                );
+            
+                if (staticOffsetAge <= 0) {
+                    throw new ConnectException (
+                        "Invalid configuration: "      + 
+                        ReplicateSourceConnectorConfig
+                        .TOPIC_STATIC_OFFSETS_AGE_DAYS + " - " +
+                        "must be at least 1 day"
+                    );
+                }
+            }
             
             for (ReplicateInfo repInfo : replicated) {
                 String partKey = topicPrefix + repInfo.getIdentifier();
@@ -359,17 +416,41 @@ public class ReplicateSourceTask extends SourceTask {
                     long uid = repOffset.getPlogUID();
                     long off = repOffset.getPlogOffset();
                     
-                    /* if kafka writer tasks is behind monitoring, restart at
-                     * PLOG for last committed kafka message
+                    /* if the kafka writer task is behind monitoring restart at
+                     * the PLOG recorded in the last committed kafka message.
+                     * Except when it is a predefined static schema that have 
+                     * a committed offset past its configured expiration age
+                     * as compared to the incoming replication offset
                      */
-                    if (uid < startPlog) {
+                    boolean ignoreOffset = false;
+                    
+                    int sourceAge = Math.round ( 
+                        (PlogFile.getPlogTimestampFromUID(repInfo.getPlogUID())
+                        - PlogFile.getPlogTimestampFromUID(uid))
+                        / 60 / 60 / 24
+                    );
+                    
+                    if (staticSchemas != null && 
+                        staticSchemas.contains(repInfo.getIdentifier()) &&
+                        sourceAge >= staticOffsetAge)
+                    {
+                        ignoreOffset = true;
+                        logger.info (
+                            "Ignoring committed offset for replicated "     +
+                            "schema: " + repInfo.getIdentifier() + " "      + 
+                            "(configured as a static source), with source " +
+                            "age of: " + sourceAge + " days"
+                        );
+                    }
+                    
+                    if (uid < startUID && !ignoreOffset) {
                         /* reading behind monitoring for this task and
                          * group of tables processed, redo PLOGs */
-                        startPlog = uid;
+                        startUID = uid;
                         
-                        plogOffsets.remove (startPlog);
+                        plogOffsets.remove (startUID);
                         /* re-read */
-                        plogOffsets.put (startPlog, 0L);
+                        plogOffsets.put (startUID, 0L);
                     }
                     
                     if (groupPlogUID == -1L || uid < groupPlogUID) {
@@ -399,32 +480,25 @@ public class ReplicateSourceTask extends SourceTask {
                 }
             }
 
-            if (groupPlogUID != -1 && groupPlogUID > startPlog) {
+            if (groupPlogUID != -1 && groupPlogUID > startUID) {
                 /* start at lowest sequence of read PLOG committed to kafka
                  * for this group of replicated schemas
                  */
-                startPlog = groupPlogUID;
-                plogOffsets.put (startPlog, 0L);
+                startUID = groupPlogUID;
+                plogOffsets.put (startUID, 0L);
             }
 
             logger.info (
                 "Processing starting at PLOG: "        + 
-                PlogFile.getFileNameFromUID(startPlog) + " " + 
+                PlogFile.getFileNameFromUID(startUID) + " " + 
                 "at file offset: " + 
                 (
-                    groupPlogOffsets.containsKey (startPlog) 
-                    ? groupPlogOffsets.get (startPlog)
-                    : plogOffsets.get (startPlog)
+                    groupPlogOffsets.containsKey (startUID) 
+                    ? groupPlogOffsets.get (startUID)
+                    : plogOffsets.get (startUID)
                 ) + " " +
                 "schemas: " + repSchemas.keySet().toString()
             );
-            
-            /* initialise parse criteria */
-            initParseCriteria(repSchemas, skipOffsets, globalStartSCN);
-            
-            /* intialise post-parse filter criteria */
-            initFilterCriteria(skipOffsets, globalStartSCN);
-            
         } catch (Exception e) {
             throw new ConnectException (
                 "Failed to configure Replicate Source Task, reason " +
@@ -436,44 +510,39 @@ public class ReplicateSourceTask extends SourceTask {
             /* setup and configure file manager */
             try {
                 /* each task tracks their own PLOGs, start scanning at 
-                 * first PLOG 
+                 * first PLOG and all PLOGs records will be converted 
+                 * to kafka records using one domain reader
                  */
+                DomainReaderBuilder builder = DomainReader.builder()
+                     .filterCriteria(
+                        getFilterCriteria(skipOffsets, globalStartSCN)
+                     )
+                     .persistCriteria(
+                         new TypeCriteria<EntrySubType> (persistentTypes)
+                     )
+                     .parseCriteria(
+                         getParseCriteria(repSchemas, skipOffsets, globalStartSCN)
+                     )
+                     .defaultCriteria(
+                         new InternalDDLFilterCriteria<EntrySubType>()
+                     )
+                     .domainParsers(getDomainParsers(repSchemas))
+                     .aggregateReader(aggregateReader)
+                     .mergeMultiPartRecords(true)
+                     .flushLastTransactions(true);
+                
                 fileManager = new PlogFileManager (
                     new PlogConfig(props),
-                    startPlog
+                    builder,
+                    startUID    
                 );
                 
-                /* block until PLOG arrives */
+                /* block until PLOG arrives, TODO: change to blocking queue */
                 fileManager.scan ();
                 PlogFile plog = fileManager.getPlog();
                 
                 /* setup reader for new PLOG upon task start */
                 PlogStreamReader reader = plog.getReader();
-                DomainReader domainReader = reader.getDomainReader();
-                
-                /* set if it's reading and aggregating */
-                domainReader.setIsAggregateReader(aggregateReader);
-                
-                /* set parse filter criteria */
-                domainReader.setParseCriteria(criteria);
-                
-                /* set post filter criteria */
-                domainReader.setFilterCriteria(filterCriteria);
-                
-                /* for kafka we need to merge multi-part LCRs and only publish
-                 * one message
-                 */
-                domainReader.enableMultiPartMerging();
-                
-                /* set parsers to handle converting PLOG entries to domain 
-                 * records by type
-                 */
-                domainReader.setDomainParsers(domainParsers);
-                
-                /* set types to persist after parsing to domain records */
-                domainReader.setPersistCriteria(
-                    new TypeCriteria<EntrySubType> (persistentTypes)
-                );
                 
                 /* set data flush/batch size */
                 String flushConfigProp = 
@@ -481,19 +550,22 @@ public class ReplicateSourceTask extends SourceTask {
                     
                 reader.setFlushSize (config.getInt(flushConfigProp));
                 
-                long startOffset = plogOffsets.get (startPlog);
+                long startOffset = plogOffsets.get (startUID);
 
                 reader.forward (startOffset);
                 
                 buildSchema = true;
                 
-                /* build static transaction info schema */
-                buildTransactionInfoSchema ();
+                /* build static transaction info schema if the connector
+                 * has been configured to publish these */
+                if (connectorMode.publishTxInfo()) {
+                    buildTransactionInfoSchema ();
+                }
             }
             catch (Exception e) {
                 throw new ConnectException (
                     "Could not initialise PLOG file manager, reason: " +
-                    e.getMessage()
+                    e.getMessage(), e
                 );
             }
         }
@@ -525,7 +597,7 @@ public class ReplicateSourceTask extends SourceTask {
      */
     @Override
     public List<SourceRecord> poll() throws InterruptedException {
-        while (!stop.get()) {
+        while (stop != null && !stop.get()) {
             try {
                 PlogFile plog = null;
                 PlogStreamReader reader = null;
@@ -548,33 +620,6 @@ public class ReplicateSourceTask extends SourceTask {
                     /* setup reader for new PLOG */
                     reader = plog.getReader();
                     
-                    DomainReader domainReader = reader.getDomainReader();
-                    
-                    /* set if it's reading and aggregating */
-                    domainReader.setIsAggregateReader(aggregateReader);
-                    
-                    /* set parse criteria */
-                    domainReader.setParseCriteria(criteria);
-                    
-                    /* set post filter criteria */
-                    domainReader.setFilterCriteria(filterCriteria);
-                    
-                    /* for kafka we need to merge multi-part LCRs and only 
-                     * publish one message
-                     */
-                    domainReader.enableMultiPartMerging();
-                    
-                    /* set default domain parsers */
-                    domainReader.setDomainParsers(domainParsers);
-                    
-                    /* set types to persist */
-                    domainReader.setPersistCriteria(
-                        new TypeCriteria<EntrySubType> (persistentTypes)
-                    );
-                    
-                    /* always flush transaction info at the end of file */
-                    domainReader.enableFlushLastTransactions();
-                    
                     /* set data flush/batch size */
                     String flushConfigProp = 
                         ReplicateSourceConnectorConfig.PLOG_DATA_FLUSH_CONFIG;
@@ -593,13 +638,13 @@ public class ReplicateSourceTask extends SourceTask {
                 /* read a batch of PLOG entries from stream */
                 while (!reader.isDone() && !reader.canFlush()) {
                     reader.read();
-                }
                 
-                /* if needed, update schema definitions */
-                if (buildSchema || plog.hasUpdatedSchema()) {
-                    buildSchemas (plog);
-                    buildSchema = false;
-                    plog.setUpdatedSchema(false);
+                    /* if needed, update schema definitions after every read */
+                    if (buildSchema || plog.hasUpdatedSchema()) {
+                        buildSchemas (plog);
+                        buildSchema = false;
+                        plog.setUpdatedSchema(false);
+                    }
                 }
 
                 if (reader.canFlush()) {
@@ -695,6 +740,7 @@ public class ReplicateSourceTask extends SourceTask {
                 new ReplicateRecordConverter()
                     .schema (schemas.get (kafkaSchema))
                     .record (domainRecord)
+                    .mode(connectorMode)
                     .convert();
             
             if (sourceRecord != null) {
@@ -728,9 +774,10 @@ public class ReplicateSourceTask extends SourceTask {
             /* schema per topic */
             if (!schemas.containsKey (kafkaSchema)) {
                 /* first version */
-                Schema schema = new ReplicateSchemaConverter()
+                TopicSchema schema = new ReplicateSchemaConverter()
                     .topicName(kafkaSchema)
                     .metadata(metadata)
+                    .mode(connectorMode)
                     .convert();
                 
                 schemas.put (kafkaSchema, schema);
@@ -743,13 +790,18 @@ public class ReplicateSourceTask extends SourceTask {
                     
                     if (metadata.getValidSinceSCN() > lastSCN) {
                         /* have an update */
-                        Schema prevSchema = schemas.get (kafkaSchema);
+                        TopicSchema prevSchema = schemas.get (kafkaSchema);
+                        
+                        logger.debug (
+                            "Updating previous schema: " + kafkaSchema
+                        );
                         
                         /* create new version of schema */
-                        Schema schema = new ReplicateSchemaConverter()
+                        TopicSchema schema = new ReplicateSchemaConverter()
                             .topicName(kafkaSchema)
                             .schema(prevSchema)
                             .metadata(metadata)
+                            .mode(connectorMode)
                             .update();      
                                 
                         schemas.put (kafkaSchema, schema);
@@ -777,17 +829,22 @@ public class ReplicateSourceTask extends SourceTask {
     /**
      * Create pre-defined transaction data record schema for Kafka
      */
-    private void buildTransactionInfoSchema () {
+    private void buildTransactionInfoSchema () throws Exception {
         String kafkaSchema = toKafkaTopicSchema(txInfoTopic);
         
-        SchemaBuilder builder = SchemaBuilder.struct().name(kafkaSchema);
+        SchemaBuilder kbuilder = connectorMode.publishKeys()
+            ? SchemaBuilder.struct().name(kafkaSchema)
+            : null;
+        SchemaBuilder vbuilder = SchemaBuilder.struct().name(kafkaSchema);
 
         if (!schemas.containsKey (txInfoTopic)) {
-            /* static topic */
+            /* static topic keys */
+            if (connectorMode.publishKeys()) {
+                kbuilder.field ("XID", Schema.STRING_SCHEMA);
+            }
+            /* static topic fields */
             for (String field : txMetaFields.keySet()) {
-                Schema schema = txMetaFields.get (field);
-                
-                builder.field (field, schema);
+                vbuilder.field (field, txMetaFields.get (field));
             }
             
             /* schema change count array field */
@@ -804,27 +861,38 @@ public class ReplicateSourceTask extends SourceTask {
                 Schema.INT32_SCHEMA
             );
                 
-            builder.field (
+            vbuilder.field (
                 "SCHEMA_CHANGE_COUNT_ARRAY",
                 SchemaBuilder.array(sbuilder.build()).build()
             );
             
-            schemas.put (kafkaSchema, builder.build());
+            /* always null key for transaction info messages */
+            Schema kschema = connectorMode.publishKeys()
+                ? kbuilder.build()
+                : null;
+            Schema vschema = vbuilder.build();
+            
+            schemas.put (kafkaSchema, new TopicSchema (kschema, vschema));
         }
     }
     
     /** 
-     * Initialises the domain's parse criteria
+     * Get the domain's parse criteria
      * 
      * @param schemas        The schemas to parse
      * @param schemaOffsets  The data offsets for each schema to parse
      * @param globalStartSCN The SCN to load/process all data from
+     * 
+     * @return the parse criteria to use for this task
      */
-    private void initParseCriteria (
+    @SuppressWarnings("rawtypes")
+    private Criteria getParseCriteria (
         final Map <String, Boolean> schemas,
         final Map <String, ReplicateOffset> schemaOffsets,
         final Long globalStartSCN
     ) {
+        Criteria parseCriteria = null;
+               
         SchemaCriteria<EntrySubType> schemaCriteria          = null;
         SystemChangeNumberCriteria<EntrySubType> scnCriteria = null;
         
@@ -854,13 +922,13 @@ public class ReplicateSourceTask extends SourceTask {
                 new SchemaOffsetCriteria<EntrySubType> (schemaOffsets);
             
             if (schemaCriteria != null) {
-                criteria = new AndCriteria<EntrySubType> (
+                parseCriteria = new AndCriteria<EntrySubType> (
                     schemaCriteria,
                     schemaOffsetCriteria
                 );
             }
             else {
-                criteria = schemaOffsetCriteria;
+                parseCriteria = schemaOffsetCriteria;
             }
         }
         else {
@@ -873,32 +941,38 @@ public class ReplicateSourceTask extends SourceTask {
                 /* each topic handles a group of replicated schemas 
                  * and global SCN filter
                  */
-                criteria = new AndCriteria<EntrySubType> (
+                parseCriteria = new AndCriteria<EntrySubType> (
                     schemaCriteria,
                     scnCriteria
                 );
             }
             else if (schemaCriteria != null && scnCriteria == null) {
-                criteria = schemaCriteria;
+                parseCriteria = schemaCriteria;
             }
             else {
-                criteria = scnCriteria;
+                parseCriteria = scnCriteria;
             }
         }
+        
+        return parseCriteria;
     }
     
     /**
-     * Initialises the filter criteria for filtering domain records after
+     * Get the filter criteria for filtering domain records after
      * parsing, this is meant for aggregate records
      * 
      * @param schemaOffsets  The data offsets for each schema to parse
      * @param globalStartSCN The SCN to load/process all data from
+     * 
+     * @return the filter criteria to use for this task
      */
-    @SuppressWarnings("serial")
-    private void initFilterCriteria (
+    @SuppressWarnings({ "serial", "rawtypes" })
+    private Criteria getFilterCriteria (
         final Map <String, ReplicateOffset> schemaOffsets,
         final Long globalStartSCN
     ) {
+        Criteria filterCriteria = null;
+        
         /* only applied for aggregates */
         if (aggregateReader) {
             TypeOffsetCriteria<DomainRecordType> typeOffsetCriteria  = null;
@@ -915,9 +989,14 @@ public class ReplicateSourceTask extends SourceTask {
                                 DomainRecordType.TRANSACTION_INFO_RECORD,
                                 schemaOffsets.get(txInfoTopic)
                             );
-                            /* do not filter change records */
+                            /* do not filter change row records */
                             put (
-                                DomainRecordType.CHANGE_RECORD,
+                                DomainRecordType.CHANGEROW_RECORD,
+                                new ReplicateOffset(0L, 0L) 
+                            );
+                            /* do not filter change set records */
+                            put (
+                                DomainRecordType.CHANGESET_RECORD,
                                 new ReplicateOffset(0L, 0L) 
                             );
                         }}
@@ -944,18 +1023,45 @@ public class ReplicateSourceTask extends SourceTask {
                 filterCriteria = scnCriteria;
             }
         }
+        
+        return filterCriteria;
     }
     
     /**
      * Initialises the domain parsers for prepared replicated schemas
      * 
      * @param repSchemas schemas to process
+     * 
+     * @return configured domain parsers
+     * @throws Exception when any errors occur
      */
-    private void initDomainParsers (Map<String, Boolean> repSchemas) {
+    private Map<EntryType, DomainParser[]> getDomainParsers (
+        Map<String, Boolean> repSchemas
+    ) throws Exception {
         /* domain parsers for parsing all known data types */
-        domainParsers = new HashMap<EntryType, DomainParser[]>();
+        Map<EntryType, DomainParser[]> domainParsers = 
+            new HashMap<EntryType, DomainParser[]>();
         
-        if (aggregateReader) {
+        DomainParser changeDataParser = null;
+        
+        /* decide how to parse based on the configured CDC format */
+        switch (connectorMode.getCDCFormat()) {
+        case CHANGEROW:
+            changeDataParser = new ChangeRowParser();
+            break;
+        case CHANGESET:
+            changeDataParser = new ChangeSetParser();
+            break;
+        default:
+            throw new Exception (
+                "Unsupported connector mode: " + connectorMode.toString()
+            );
+        }
+
+        /* if the connector is not configured to publish transaction info
+         * records it cannot be an aggregate reader
+         */
+        if (connectorMode.publishTxInfo() && aggregateReader) {
             /* single transaction info parser for aggregating */
             TransactionInfoParser txParser = new TransactionInfoParser();
             
@@ -972,7 +1078,7 @@ public class ReplicateSourceTask extends SourceTask {
             }
             else {
                 dataParsers = new DomainParser[] {
-                    new LogicalChangeParser(),
+                    changeDataParser,
                     txParser
                 };
                 /* need meta data for LCR parsing */
@@ -1007,7 +1113,7 @@ public class ReplicateSourceTask extends SourceTask {
             domainParsers.put (
                 EntryType.ETYPE_LCR_DATA,
                 new DomainParser[] {
-                    new LogicalChangeParser()
+                    changeDataParser
                 }
             );
         }
@@ -1018,6 +1124,8 @@ public class ReplicateSourceTask extends SourceTask {
                 new ProxyDomainParser() 
             }
         );
+        
+        return domainParsers;
     }
     
     /** Types to persist to cache after parsing to PLOG domain records */
@@ -1046,5 +1154,6 @@ public class ReplicateSourceTask extends SourceTask {
             put ("END_CHANGE_ID",   Schema.INT64_SCHEMA);
             put ("CHANGE_COUNT",    Schema.INT32_SCHEMA);
     }};
+    
 }
 

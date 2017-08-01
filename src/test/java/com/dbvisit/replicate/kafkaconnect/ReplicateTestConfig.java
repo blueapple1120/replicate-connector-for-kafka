@@ -4,23 +4,43 @@ import static org.junit.Assert.fail;
 
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 
+import org.apache.kafka.clients.consumer.Consumer;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.clients.consumer.MockConsumer;
+import org.apache.kafka.clients.consumer.OffsetResetStrategy;
+import org.apache.kafka.clients.producer.MockProducer;
+import org.apache.kafka.common.serialization.StringSerializer;
+import org.easymock.EasyMock;
+import org.easymock.EasyMockSupport;
+import org.powermock.api.easymock.PowerMock;
+import org.powermock.core.classloader.annotations.PrepareForTest;
+
+import com.dbvisit.replicate.kafkaconnect.PlogMonitorThread.PlogMonitorThreadComposer;
+import com.dbvisit.replicate.kafkaconnect.util.ReplicateInfoTopic;
+import com.dbvisit.replicate.kafkaconnect.util.ReplicateInfoTopic.ReplicateInfoTopicComposer;
 import com.dbvisit.replicate.plog.config.PlogConfigType;
 import com.dbvisit.replicate.plog.domain.ReplicateInfo;
 import com.dbvisit.replicate.plog.domain.ReplicateOffset;
 import com.dbvisit.replicate.plog.file.PlogFile;
 
 /** Provide configuration and text fixtures for small PLOG set */
-public class ReplicateTestConfig {
+@PrepareForTest(ReplicateInfoTopic.class)
+public class ReplicateTestConfig extends EasyMockSupport {
     protected final int EXPECTED_REP_SIZE = 2;
     protected final int EXPECTED_PLOG_ID = 20;
     protected final int EXPECTED_PLOG_TIMESTAMP = 1468812543;
     protected final long EXPECTED_DATA_OFFSET = 12812;
     
-    protected final String EXPECTED_AGGREGATE = "TXMETA";
+    protected final String EXPECTED_AGGREGATE = "TX.META";
     protected final ReplicateInfo EXPECTED_AGGREGATE_INFO = new ReplicateInfo ()
     {{
         setPlogUID(
@@ -82,30 +102,12 @@ public class ReplicateTestConfig {
         return configProps;
     }
     
-    public Map<String, String> getConfigPropsForSourceTasks () {
-        Map <String, String> configProps = getConfigPropsForMultiSet();
+    public Properties getConfigForMultiSet () {
+        Properties props = new Properties();
         
-        /* test PLOG data contains one replicated table and it's
-         * transaction meta data 
-         */
-        configProps.put (
-            ReplicateSourceTaskConfig.REPLICATED_CONFIG,
-            "{" +
-            "\"plogUID\":87368158463," +
-            "\"dataOffset\":12812," +
-            "\"identifier\":\"SOE.UNITTEST\"," +
-            "\"aggregate\":false" +
-            "}" +
-            ReplicateSourceConnector.REPLICATED_GROUP_DELIMTER +
-            "{" +
-            "\"plogUID\":87368158463," +
-            "\"dataOffset\":12812," +
-            "\"identifier\":\"TXMETA\"," +
-            "\"aggregate\":true" +
-            "}" 
-        );
+        props.putAll(getConfigPropsForMultiSet());
         
-        return configProps;
+        return props;
     }
     
     public Map<String, String> getConfigPropsForSourceTask () {
@@ -119,19 +121,23 @@ public class ReplicateTestConfig {
             "{" +
             "\"plogUID\":87368158463," +
             "\"dataOffset\":12812," +
-            "\"identifier\":\"TXMETA\"," +
-            "\"aggregate\":true" +
+            "\"identifier\":\"SOE.UNITTEST\"," +
+            "\"aggregate\":false" +
             "}" +
             ReplicateSourceConnector.REPLICATED_GROUP_DELIMTER +
             "{" +
             "\"plogUID\":87368158463," +
             "\"dataOffset\":12812," +
-            "\"identifier\":\"SOE.UNITTEST\"," +
-            "\"aggregate\":false" +
-            "}"
+            "\"identifier\":\"TX.META\"," +
+            "\"aggregate\":true" +
+            "}" 
         );
         
         return configProps;
+    }
+    
+    public Map<String, String> getConfigPropsForSourceConnector () {
+        return getConfigPropsForSourceTask();
     }
     
     public Map<String, String> getConfigPropsForSourceTaskWithStartSCN (
@@ -154,7 +160,7 @@ public class ReplicateTestConfig {
                 new HashMap<String, String>() {{
                     put (
                         ReplicateSourceTask.REPLICATE_NAME_KEY,
-                        EXPECTED_AGGREGATE
+                        EXPECTED_TABLE
                     );
                 }}
             );
@@ -162,7 +168,7 @@ public class ReplicateTestConfig {
                 new HashMap<String, String>() {{
                     put (
                         ReplicateSourceTask.REPLICATE_NAME_KEY,
-                        EXPECTED_TABLE
+                        EXPECTED_AGGREGATE
                     );
                 }}
             );
@@ -210,6 +216,12 @@ public class ReplicateTestConfig {
         }};
     }
  
+    /* OLD plog */
+    protected final ReplicateOffset PLOG_1_CHANGE_OFFSET = 
+        new ReplicateOffset (
+            PlogFile.createPlogUID(1, 1468000547),
+            2000L
+    );
     
     /** End offsets as stored for change records in each PLOG */
     /* 90194315216L */
@@ -260,9 +272,9 @@ public class ReplicateTestConfig {
     final protected long PLOG_23_TRANSACTION_SCN = 754492L;
     
     /* LCR contents of PLOG set as JSON */
-    final protected String[] CHANGE_RECORDS_JSON = new String[] {
+    final protected String[] CHANGEROW_RECORDS_JSON = new String[] {
         "{"                                            +
-            "\"recordType\":\"CHANGE_RECORD\","        +
+            "\"recordType\":\"CHANGEROW_RECORD\","     +
             "\"action\":\"INSERT\","                   +
             "\"id\":21010000011,"                      +
             "\"plogId\":21,"                           +
@@ -293,7 +305,7 @@ public class ReplicateTestConfig {
             "}"                                        +
         "}",
         "{"                                            +
-            "\"recordType\":\"CHANGE_RECORD\","        +
+            "\"recordType\":\"CHANGEROW_RECORD\","     +
             "\"action\":\"UPDATE\","                   +
             "\"id\":22010000008,"                      +
             "\"plogId\":22,"                           +
@@ -324,7 +336,7 @@ public class ReplicateTestConfig {
             "}"                                        +
         "}",
         "{"                                            +
-            "\"recordType\":\"CHANGE_RECORD\","        +
+            "\"recordType\":\"CHANGEROW_RECORD\","     +
             "\"action\":\"DELETE\","                   +
             "\"id\":23010000008,"                      +
             "\"plogId\":23,"                           +
@@ -356,6 +368,110 @@ public class ReplicateTestConfig {
         "}"
     };
 
+    /* Change set LCR contents of PLOG set as JSON */
+    final protected String[] CHANGESET_RECORDS_JSON = new String[] {
+        "{"                                            +
+            "\"recordType\":\"CHANGESET_RECORD\","     +
+            "\"action\":\"INSERT\","                   +
+            "\"id\":21010000011,"                      +
+            "\"plogId\":21,"                           +
+            "\"transactionId\":\"0007.00b.000002a2\"," +
+            "\"systemChangeNumber\":754222,"           +
+            "\"timestamp\":1468769345000,"             +
+            "\"tableId\":20253,"                       +
+            "\"tableOwner\":\"SOE\","                  +
+            "\"tableName\":\"UNITTEST\","              +
+            "\"new\":["                                +
+                "{"                                    +
+                    "\"id\":1,"                        +
+                    "\"type\":\"NUMBER\","             +
+                    "\"name\":\"ID\","                 +
+                    "\"value\":1"                      +
+                "},"                                   +
+                "{"                                    +
+                    "\"id\":2,"                        +
+                    "\"type\":\"VARCHAR2\","           +
+                    "\"name\":\"TEST_NAME\","          +
+                    "\"value\":\"TEST INSERT\""        +
+                "}"                                    +
+            "],"                                       +
+            "\"multiPart\":false,"                     +
+            "\"replicateOffset\":{"                    +
+            "\"plogUID\":91663125763,"                 +
+            "\"plogOffset\":2000"                      +
+            "}"                                        +
+        "}",
+        "{"                                            +
+            "\"recordType\":\"CHANGESET_RECORD\","     +
+            "\"action\":\"UPDATE\","                   +
+            "\"id\":22010000008,"                      +
+            "\"plogId\":22,"                           +
+            "\"transactionId\":\"0003.015.000003bb\"," +
+            "\"systemChangeNumber\":754354,"           +
+            "\"timestamp\":1468769348000,"             +
+            "\"tableId\":20253,"                       +
+            "\"tableOwner\":\"SOE\","                  +
+            "\"tableName\":\"UNITTEST\","              +
+            "\"key\":["                                +
+                "{"                                    +
+                    "\"id\":1,"                        +
+                    "\"type\":\"NUMBER\","             +
+                    "\"name\":\"ID\","                 +
+                    "\"value\":1"                      +
+                "},"                                   +
+                "{"                                    +
+                    "\"id\":2,"                        +
+                    "\"type\":\"VARCHAR2\","           +
+                    "\"name\":\"TEST_NAME\","          +
+                    "\"value\":\"TEST INSERT\""        +
+                "}"                                    +
+            "],"                                       +
+            "\"new\":["                                +
+                "{"                                    +
+                    "\"id\":2,"                        +
+                    "\"type\":\"VARCHAR2\","           +
+                    "\"name\":\"TEST_NAME\","          +
+                    "\"value\":\"TEST UPDATE\""        +
+                "}"                                    +
+            "],"                                       +
+            "\"multiPart\":false,"                     +
+            "\"replicateOffset\":{"                    +
+            "\"plogUID\":95958093061,"                 +
+            "\"plogOffset\":1608"                      +
+            "}"                                        +
+        "}",
+        "{"                                            +
+            "\"recordType\":\"CHANGESET_RECORD\","    +
+            "\"action\":\"DELETE\","                   +
+            "\"id\":23010000008,"                      +
+            "\"plogId\":23,"                           +
+            "\"transactionId\":\"0005.007.00000395\"," +
+            "\"systemChangeNumber\":754492,"           +
+            "\"timestamp\":1468769351000,"             +
+            "\"tableId\":20253,"                       +
+            "\"tableOwner\":\"SOE\","                  +
+            "\"tableName\":\"UNITTEST\","              +
+            "\"key\":["                                +
+                "{"                                    +
+                    "\"id\":1,"                        +
+                    "\"type\":\"NUMBER\","             +
+                    "\"name\":\"ID\","                 +
+                    "\"value\":1"                      +
+                "},"                                   +
+                "{"                                    +
+                    "\"id\":2,"                        +
+                    "\"type\":\"VARCHAR2\","           +
+                    "\"name\":\"TEST_NAME\","          +
+                    "\"value\":\"TEST UPDATE\""        +
+                "}"                                    +
+            "],"                                       +
+            "\"multiPart\":false,"                     +
+            "\"replicateOffset\":{"                    +
+            "\"plogUID\":100253060361,"                +
+            "\"plogOffset\":1492"                      +
+            "}"                                        +
+        "}"
+    };
     /* Meta data contents of PLOG set */
     final protected String METADATA_RECORD_1_JSON =
         "{"                                             +
@@ -377,7 +493,8 @@ public class ReplicateTestConfig {
                         "\"columnType\":\"NUMBER\","    +
                         "\"columnPrecision\":6,"        +
                         "\"columnScale\":0,"            +
-                        "\"isNullable\":false"          +
+                        "\"isNullable\":false,"         +
+                        "\"isKey\":true"                +
                     "},"                                +
                     "{"                                 +
                         "\"columnId\":2,"               +
@@ -416,7 +533,8 @@ public class ReplicateTestConfig {
                         "\"columnType\":\"NUMBER\","    +
                         "\"columnPrecision\":6,"        +
                         "\"columnScale\":0,"            +
-                        "\"isNullable\":false"          +
+                        "\"isNullable\":false,"         +
+                        "\"isKey\":true"                +
                     "},"                                +
                     "{"                                 +
                         "\"columnId\":2,"               +
@@ -516,9 +634,9 @@ public class ReplicateTestConfig {
     }
     
     /* LCR with no column value as JSON, test to add column value */
-    protected String CHANGE_RECORD_NO_VALUES_JSON =
+    protected String CHANGEROW_RECORD_NO_VALUES_JSON =
         "{"                                            +
-            "\"recordType\":\"CHANGE_RECORD\","        +
+            "\"recordType\":\"CHANGEROW_RECORD\","    +
             "\"action\":\"INSERT\","                   +
             "\"id\":21010000011,"                      +
             "\"plogId\":21,"                           +
@@ -559,4 +677,89 @@ public class ReplicateTestConfig {
             "\"plogOffset\":13300"                      +
             "}"                                         +
         "}";
+    
+    final StringSerializer serialiser = new StringSerializer();
+    final String mockTopicName = "MOCK-REPLICATTE-OFFSET";
+    protected final ReplicateInfoTopic infoTopic =
+        new ReplicateInfoTopic (
+            mockTopicName,
+            new MockProducer<String, String>(
+                true, serialiser, serialiser
+            ),
+            getConfigForMultiSet())
+        {
+            @Override
+            public synchronized Map <String, ReplicateInfo> read () 
+                throws Exception {
+                Map<String, ReplicateInfo> catalog = Collections.synchronizedMap(
+                    new LinkedHashMap<String, ReplicateInfo> ()
+                );
+                Consumer<String, String> consumer = 
+                    new MockConsumer<String, String>(
+                        OffsetResetStrategy.EARLIEST
+                    );
+                consumer.subscribe(Arrays.asList(mockTopicName));
+                
+                try {
+                    /* greedy implementation, always fetch all replicate info 
+                     * messages when source connector is started */
+                    ConsumerRecords<String, String> records = consumer.poll(
+                        100
+                    );
+                    if (records != null) {
+                        for (ConsumerRecord<String, String> record : records) {
+                            String identifier  = record.key();
+                            ReplicateInfo info = ReplicateInfo.fromJSONString(
+                                record.value()
+                            );
+                            /* all message are consumed in order, always overwrite 
+                             * with the latest info */
+                            catalog.put (identifier, info);
+                        }
+                    }
+                }
+                catch (Exception e) {
+                    throw new Exception (
+                        "Failed to read replicate info records from topic: " + 
+                        mockTopicName + ", reason: " + e.getMessage(),
+                        e
+                    );
+                }
+                finally {
+                    consumer.close();
+                }
+                
+                return catalog;
+            }
+        };
+        
+    protected final ReplicateInfoTopicComposer topicConfigurator = 
+        new ReplicateInfoTopicComposer() {
+            public ReplicateInfoTopicComposer configure(
+                final Map<String, String> props
+            ) throws Exception {
+                return this;
+            }
+            public ReplicateInfoTopic build () {
+                return infoTopic;
+            }
+        };
+        
+    protected final PlogMonitorThreadComposer threadConfigurator =
+        new PlogMonitorThreadComposer() {
+            public PlogMonitorThreadComposer configure(
+                final Map<String, String> props
+            ) throws Exception {
+                PowerMock.mockStatic (ReplicateInfoTopic.class);
+                EasyMock.expect (
+                    ReplicateInfoTopic.composer()
+                ).andReturn(topicConfigurator);
+                PowerMock.replayAll();
+                configureReplicateInfoTopic(props);
+                PowerMock.verifyAll();
+                configureFileManager(props);
+                configureTransactionTopic(props);
+                return this;
+            }
+        };
 }

@@ -98,9 +98,9 @@ public class ReplicateSourceTaskTest extends ReplicateTestConfig {
         
         sourceTask.initialize(context);
         
-        sourceTask.start(getConfigPropsForSourceTask());
-        
         try {
+            sourceTask.start(getConfigPropsForSourceTask());
+            
             assertEquals (
                 "Expecting no record for first poll, nothing in PLOG", 
                 null, 
@@ -326,6 +326,78 @@ public class ReplicateSourceTaskTest extends ReplicateTestConfig {
             validateRecordOffset(records, PLOG_22_TRANSACTION_OFFSET);
             
             /* next call will block because there is no further data */
+        }
+        catch (InterruptedException ie) {
+            logger.info ("Stopping task");
+        }
+        catch (Exception e) {
+            e.printStackTrace();
+            fail (e.getMessage());
+        }
+        finally {
+            sourceTask.stop();
+        }
+    }
+    
+    @Test
+    public void testSourceTaskIgnoreOffsetsForStaticSchema() {
+        logger.info ("Test ignoring committed offsets for static schemas");
+        
+        SourceTaskContext context = EasyMock.createMock(
+            SourceTaskContext.class
+        );
+        
+        OffsetStorageReader offsetStorageReader = EasyMock.createMock (
+            OffsetStorageReader.class
+        );
+        
+        EasyMock.expect(context.offsetStorageReader())
+            .andReturn(offsetStorageReader);
+        
+        try {
+            EasyMock.expect(offsetStorageReader.offsets(offsetPartitions()))
+                .andReturn(
+                    storedOffsets (PLOG_1_CHANGE_OFFSET.toJSONString())
+                );
+        } catch (Exception e) {
+            e.printStackTrace();
+            fail (e.getMessage());
+        }
+        
+        EasyMock.checkOrder(context, false);
+        EasyMock.replay(context);
+        
+        EasyMock.checkOrder(offsetStorageReader, false);
+        EasyMock.replay(offsetStorageReader);
+        
+        ReplicateSourceTask sourceTask = new ReplicateSourceTask();
+        
+        sourceTask.initialize(context);
+        
+        try {
+            Map<String, String> config = getConfigPropsForSourceTask();
+            /* pretend all canned schemas are static */
+            config.put (
+                ReplicateSourceConnectorConfig.TOPIC_STATIC_SCHEMAS,
+                "SOE.UNITTEST,TX.META"
+            );
+            config.put (
+                ReplicateSourceConnectorConfig.TOPIC_STATIC_OFFSETS_AGE_DAYS,
+                "1"
+            );
+            sourceTask.start(config);
+        }
+        catch (ConnectException ce) {
+            ce.printStackTrace();
+        }
+        
+        try {
+            /* expect no new messages to publish */
+            List<SourceRecord> records = sourceTask.poll();
+            assertNull (
+                "Expecting no records when all static offsets have been ignored",
+                records
+            );
         }
         catch (InterruptedException ie) {
             logger.info ("Stopping task");

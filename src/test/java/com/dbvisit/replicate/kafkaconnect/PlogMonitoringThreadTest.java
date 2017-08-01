@@ -8,12 +8,15 @@ import java.util.Map;
 
 import org.apache.kafka.connect.connector.ConnectorContext;
 import org.junit.Test;
+import org.junit.runner.RunWith;
 import org.powermock.api.easymock.annotation.Mock;
+import org.powermock.modules.junit4.PowerMockRunner;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.dbvisit.replicate.plog.domain.ReplicateInfo;
 
+@RunWith(PowerMockRunner.class)
 public class PlogMonitoringThreadTest extends ReplicateTestConfig {
     private static final Logger logger = LoggerFactory.getLogger (
         PlogMonitoringThreadTest.class
@@ -21,7 +24,7 @@ public class PlogMonitoringThreadTest extends ReplicateTestConfig {
     
     @Mock private ConnectorContext context;
     private PlogMonitorThread plogMonitorThread;
-
+    
     @Test
     public void testMonitorReplicatedSchema() {
         /* test PLOG data contains one replicated table and it's
@@ -56,11 +59,12 @@ public class PlogMonitoringThreadTest extends ReplicateTestConfig {
         List<String> replicatedAsJSON = null;
         
         try {
-            plogMonitorThread = new PlogMonitorThread(
-                context, 
-                getConfigPropsForMultiSet()
-            );
+            plogMonitorThread = threadConfigurator
+                .configure(getConfigPropsForMultiSet())
+                .context(context)
+                .build();
         } catch (Exception e) {
+            e.printStackTrace();
             fail (
                 "Couldn't start ReplicateSourceConnector due to " + 
                 "configuration error"
@@ -73,29 +77,12 @@ public class PlogMonitoringThreadTest extends ReplicateTestConfig {
         plogMonitorThread.start();
         
         try {
-            synchronized (plogMonitorThread) {
-                while (plogMonitorThread.isAlive() &&
-                       !plogMonitorThread.readyForTasks())
-                {
-                    logger.info (
-                        "Waiting for replicated schema or until timeout"
-                    );
-
-                    plogMonitorThread.wait(plogMonitorThread.getTimeOut());
-                }
-            }
+            replicatedAsJSON = plogMonitorThread.taskConfigs();
 
             assertTrue (
                 "Must have replicated schemas",
-                plogMonitorThread.readyForTasks()
+                replicatedAsJSON.size() > 1
             );
-            
-            try {
-                replicatedAsJSON = plogMonitorThread.replicatedSchemas();
-            } catch (Exception e1) {
-                e1.printStackTrace();
-                fail (e1.getMessage());
-            }
         } catch (Exception e) {
             fail (
                 "Failed to wait for replicated schemas: " + e.getMessage()
@@ -155,5 +142,4 @@ public class PlogMonitoringThreadTest extends ReplicateTestConfig {
             plogMonitorThread.isAlive()
         );
     }
-
 }
