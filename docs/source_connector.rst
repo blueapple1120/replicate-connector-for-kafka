@@ -31,7 +31,7 @@ By default all changes for a table are delivered to a single topic in Kafka. Top
 .. note::
     Each topic receiving change data event messages from Oracle should always be created with a single partition IF retaining the global change ordering from the source in Kafka is important for your use of the data on that side.
 
-In addition to this the **Dbvisit Replicate Connector for Kafka** will also automatically create and write to a meta-data topic (the name of which can be configured for the connector) in Kafka, which lists out Oracle transaction information from across all the tables that changes have been configured to listen for. This can be utilized by Kafka consumers to reconstruct the precise global ordering of changes, across the various topics, as they occurred in order on the Oracle database.
+In addition to this the **Dbvisit Replicate Connector for Kafka** will also automatically create and write to a meta-data topic (the name of which is ``TX.INFO`` by default, and can be configured in ``topic.name.transaction.info``) in Kafka, which lists out Oracle transaction information from across all the tables that changes have been configured to listen for. This can be utilized by Kafka consumers to reconstruct the precise global ordering of changes, across the various topics, as they occurred in order on the Oracle database.
 
 The **Dbvisit Replicate Connector for Kafka** works with the open source Avro converters and `Schema Registry <http://docs.confluent.io/current/schema-registry/docs/index.html>`_ metadata service, provided by `Confluent <https://www.confluent.io/>`_, to govern the shape (and evolution) of the messages delivered to Kafka. This is a natural fit when working with highly structured RDBMS data, and the recommended approach for deployment.
 
@@ -141,7 +141,8 @@ Steps
     #Start the REST Proxy (optional)
     ➜ $CONFLUENT_HOME/bin/kafka-rest-start -daemon $CONFLUENT_HOME/etc/kafka-rest/kafka-rest.properties
 
-NB: this default configuration is run on a single server with local zookeeper, schema registry and REST Proxy services.
+.. note::
+    This default configuration is run on a single server with local Zookeeper, Kafka, Schema Registry and REST Proxy services.
 
 As an alternative, for ease of use, these commands can be wrapped in a script and then invoked to start the processes. Name and save this script to a location of your choice, being sure to set CONFLUENT_HOME correctly within it:
 
@@ -197,7 +198,8 @@ Default Kafka consumers (clients for consuming messages from Kafka) are provided
 
 This expected output shows the SOE.CUSTOMERS table column data in the JSON encoding of the Avro records. The JSON encoding of Avro encodes the strings in the format ``{"type": value}``, and a column of type ``STRING`` can be ``NULL``. So each row is represented as an Avro record and each column is a field in the record. Included also are the Transaction ID (XID) that the change to this particular record occurred in, the TYPE of DML change made (insert, delete or update), and the specific CHANGE_ID as recorded for this in Dbvisit Replicate.
 
-NOTE: to use JSON encoding and the JSON consumer please see our notes on `JsonConverter settings <http://replicate-connector-for-kafka.readthedocs.io/en/latest/source_connector.html#json>`_ later in this guide.
+.. note::
+    To use JSON encoding and the JSON consumer please see our notes on `JsonConverter settings <http://replicate-connector-for-kafka.readthedocs.io/en/latest/source_connector.html#json>`_ later in this guide.
 
 If there are more PLOGS to process you should see changes come through the consumers in real-time, and the following "Processing PLOG" messages in the Replicate Connector log file output:
 
@@ -240,7 +242,7 @@ All the features of `Kafka Connect <http://docs.confluent.io/current/connect/ind
 CDC Format
 ^^^^^^^^^^
 
-Two types of change data capture format are supported for Kafka messages. See the configuration option ``connector.publish.cdc.format``.
+Two types of change data capture format are supported for Kafka messages. See the configuration option ``connector.publish.cdc.format``
 
 Change Row publishing
 ^^^^^^^^^^^^^^^^^^^^^
@@ -257,7 +259,8 @@ When a Schema Registry is used to perform schema validation all records must con
 
 This type of change record is useful when the latest version of the data is all that's needed, irrespective of the change vector. However with state-full stream processing the change vectors are implicit and can be easily extracted. 
 
-``For the 2.8.04 version the only mode of operation supported was to publish complete change rows to a unique topic per table.``
+``For the 2.8.04 version the only mode of operation supported was to publish complete change rows to a unique 
+topic per table.``
 
 To illustrate we create a simple table on the Oracle source database, as follows, and perform an insert, update and delete:
 
@@ -277,7 +280,6 @@ The default Kafka Connect JSON consumer can be invoked as follows (see the notes
 Inserts
 """""""
 insert into SOE.TEST2  values (1, 'Matt Roberts', 'Clerk');
-
 commit;
 
 .. sourcecode:: bash
@@ -287,7 +289,6 @@ commit;
 Updates
 """""""
 update SOE.TEST2 set user_role = 'Senior Partner' where user_id=1;
-
 commit;
 
 .. sourcecode:: bash
@@ -299,7 +300,6 @@ Note that a complete row is represented as a message delivered to Kafka. This is
 Deletes
 """""""
 delete from SOE.TEST2 where user_id=1;
-
 commit;
 
 .. sourcecode:: bash
@@ -447,7 +447,7 @@ Data from each replicated table is published to their own un-partitioned topic, 
 
 Topic Auto-creation
 ^^^^^^^^^^^^^^^^^^^
-The automatic creation of topics is governed by the Kafka parameter ``auto.create.topics.enable``, which is TRUE by default. This means that, as far as the Dbvisit Replicate Connector goes, any new tables detected in the PLOG files it processes will have new topics (with a single partition) automatically generated for them – and change messages written to them without any additional intervention.
+The automatic creation of topics is governed by the Kafka parameter ``auto.create.topics.enable`` which is TRUE by default. This means that, as far as the Dbvisit Replicate Connector goes, any new tables detected in the PLOG files it processes will have new topics (with a single partition) automatically generated for them – and change messages written to them without any additional intervention.
 
 Data types
 ^^^^^^^^^^
