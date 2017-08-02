@@ -81,7 +81,8 @@ All User Configuration Properties
 
 
 **Version 2.9.00**
-  Includes all configuration options for 2.8.04.
+
+Includes all configuration options for 2.8.04.
 
 ``connector.publish.cdc.format``
   Set the output CDC format of the Replicate Connector. This determines what type of messages are published to Kafka, and the options are:
@@ -93,7 +94,7 @@ All User Configuration Properties
   * Default: changerow
 
 ``connector.publish.transaction.info``
-  Set whether or not the transaction info topic (topic.name.transaction.info) should be populated. This includes adding three fields to each Kafka data message to link the individual change message to its parent transaction message:
+  Set whether or not the transaction info topic (``topic.name.transaction.info``) should be populated. This includes adding three fields to each Kafka data message to link the individual change message to its parent transaction message:
 
   * XID - transaction ID
   * TYPE - type of change, e.g. INSERT, UPDATE or DELETE
@@ -119,7 +120,7 @@ All User Configuration Properties
   * Default: false
 
 ``connector.publish.no.schema.evolution``
-  If logical data types are used as default values certain versions of Schema Registry might fail validation due to an issue, see #556. This option is provided for disabling schema evolution for BACKWARDS compatible schemas, effectively forcing all messages to conform to the first schema version published by ignoring all subsequent DDL operations.
+  If logical data types are used as default values certain versions of Schema Registry might fail validation due to an issue, see `#556 <https://github.com/confluentinc/schema-registry/issues/556>`_. This option is provided for disabling schema evolution for BACKWARDS compatible schemas, effectively forcing all messages to conform to the first schema version published by ignoring all subsequent DDL operations.
 
   The options are:
 
@@ -133,6 +134,7 @@ All User Configuration Properties
   Define the source schemas, as a comma separated list of fully qualified source table names, that may be considered static or only receiving sporadic changes. The committed offsets of their last message can be safely ignored if the lapsed days between the source PLOG of a new message and that of a previous one exceeds topic.static.offsets.age.days
 
   Example:
+
   * SCHEMA.TABLE1,SCHEMA.TABLE2
 
   * Type: string
@@ -144,8 +146,17 @@ All User Configuration Properties
   * Type: string
   * Default: 7   
 
+``connector.catalog.bootstrap.servers``
+  The Kafka bootstrap servers to use for establishing the initial connection to the Kafka cluster. This is needed for storing internal catalog records for the Dbvisit Replicate source connector.
 
+  * Type: string
+  * Default: localhost:9092 
 
+``connector.catalog.topic.name``
+  The name of the internal catalog topic created by the Dbvisit Replicate Connector for Kafka, used for tracking all replicated schemas emitted in PLOG stream. The provision is made here to rename this, to avoid conflicts with existing tables. But otherwise this topic should not be interfered with.
+
+  * Type: string
+  * Default: REPLICATE-INFO 
 
 
 Data Types
@@ -210,7 +221,7 @@ Data Types
 Distributed Mode Settings
 -------------------------
 
-Use the following to start Dbvisit Replicate Connector for Kafka in Distributed mode, once the Kafka Connect worker has been started on the host node. `Postman <https://www.getpostman.com/>`_ is an excellent utility for working with cUrl commands.
+Use the following as a guide to starting Dbvisit Replicate Connector for Kafka in Distributed mode, once the Kafka Connect worker(s) has been started on the host node(s). `Postman <https://www.getpostman.com/>`_ is an excellent utility for working with cUrl commands.
 
 .. sourcecode:: bash
 
@@ -234,7 +245,7 @@ Or save this to a file <json_file>:
 .. sourcecode:: bash
 
   {
-    "name": "TSource",
+    "name": "kafka-connect-dbvisitreplicate",
     "config": {
       "connector.class": "com.dbvisit.replicate.kafkaconnect.ReplicateSourceConnector",
     "tasks.max": "2", 
