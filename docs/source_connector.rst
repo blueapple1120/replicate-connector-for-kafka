@@ -29,7 +29,7 @@ By default all changes for a table are delivered to a single topic in Kafka. Top
     Oracle table -> Kafka topic
 
 .. note::
-    Each topic receiving change data event messages from Oracle should always be created with a single partition IF retaining the global change ordering from the source in Kafka is important for your use of the data on that side.
+    Each topic receiving change data event messages from Oracle should always be created with a single partition if retaining the global change ordering from the source in Kafka is important for your use of the data on that side.
 
 In addition to this the **Dbvisit Replicate Connector for Kafka** will also automatically create and write to a meta-data topic (the name of which is ``TX.INFO`` by default, and can be configured in ``topic.name.transaction.info``) in Kafka, which lists out Oracle transaction information from across all the tables that changes have been configured to listen for. This can be utilized by Kafka consumers to reconstruct the precise global ordering of changes, across the various topics, as they occurred in order on the Oracle database.
 
@@ -79,9 +79,9 @@ This corresponds to the following number of transactions recorded by the Connect
     TX.META:          606          
 
 
-You can download the Dbvisit Replicate Connector QuickStart properties file (that you can also `see on GitHub <https://github.com/dbvisitsoftware/replicate-connector-for-kafka/blob/master/config/dbvisit-replicate.properties>`_), which contains sensible starting configuration parameters, `from this location <https://www.dropbox.com/s/3t0pc9htndm4oo1/dbvisit-replicate.properties?dl=0>`_. 
+You can download the Dbvisit Replicate Connector properties file (that you can also `see on GitHub <https://github.com/dbvisitsoftware/replicate-connector-for-kafka/blob/master/config/dbvisit-replicate.properties>`_), which contains sensible starting configuration parameters, `from this location <https://www.dropbox.com/s/3t0pc9htndm4oo1/dbvisit-replicate.properties?dl=0>`_. 
 
-Using these examples files as a starting point means that you do not have to setup and configure the Dbvisit Replicate application to produce a stream of PLOG files. This will enable you to get the Dbvisit Replicate Connector for Kafka up and running quickly. From there you can see it ingest Oracle change data to Kafka, and view via consumers, or route to some other end target. Of course this limited change set means that you will not see new changes flowing through from an Oracle source once this dataset has been processed - but it is a good place to begin in terms of understanding the connector functionality and operation.
+Using these example files as a starting point means that you do not have to setup and configure the Dbvisit Replicate application to produce a stream of PLOG files. This will enable you to get the Dbvisit Replicate Connector for Kafka up and running quickly. From there you can see it ingest Oracle change data to Kafka, and view via consumers, or route to some other end target. Of course this limited change set means that you will not see new changes flowing through from an Oracle source once this dataset has been processed - but it is a good place to begin in terms of understanding the connector functionality and operation.
 
 To move beyond the Quickstart please refer to the Dbvisit Replicate online user guide for `information and instructions on setting and configuring <https://dbvisit.atlassian.net/wiki/pages/viewpage.action?pageId=128742258>`_ that application to produce and deliver the PLOG file stream.
 
@@ -118,6 +118,32 @@ Steps
     ➜ mkdir $CONFLUENT_HOME/etc/kafka-connect-dbvisit
     #Install the Quickstart properties file (download link above) to the location just created
 
+.. note::
+    When working with the Connector JAR bundle ``dbvisit_replicate_connector_for_kafka-2.9.00-linux_x86_64-jar.zip`` (see download link above) extracting the zip file in your CONFLUENT_HOME directory will create these directories for you, and move the files (including OSFM) into place. For example:
+
+.. sourcecode:: bash
+
+    [oracle@dbvrep01 confluent-3.2.1]$ unzip dbvisit_replicate_connector_for_kafka-2.9.00-linux_x86_64-jar.zip
+    Archive:  dbvisit_replicate_connector_for_kafka-2.9.00-linux_x86_64-jar.zip
+    creating: share/java/kafka-connect-dbvisit/
+    inflating: share/java/kafka-connect-dbvisit/kafka-connect-dbvisitreplicate-2.9.00.jar
+    inflating: share/java/kafka-connect-dbvisit/jackson-core-2.7.1.jar
+    inflating: share/java/kafka-connect-dbvisit/jackson-databind-2.7.1.jar
+    inflating: share/java/kafka-connect-dbvisit/jackson-annotations-2.7.1.jar
+    inflating: share/java/kafka-connect-dbvisit/replicate-connector-lib-2.9.00.jar
+    inflating: share/java/kafka-connect-dbvisit/slf4j-log4j12-1.7.6.jar
+    inflating: share/java/kafka-connect-dbvisit/log4j-1.2.17.jar
+    inflating: share/java/kafka-connect-dbvisit/kafka-connect-dbvisit-admin-2.9.00.jar
+    inflating: share/java/kafka-connect-dbvisit/commons-cli-1.3.1.jar
+    creating: share/doc/kafka-connect-dbvisit/
+    inflating: share/doc/kafka-connect-dbvisit/NOTICE
+    inflating: share/doc/kafka-connect-dbvisit/LICENSE
+    creating: etc/kafka-connect-dbvisit/
+    inflating: etc/kafka-connect-dbvisit/dbvisit-replicate.properties
+    inflating: bin/run-admin-class.sh
+    inflating: bin/obsolete-source-file-manager.sh
+
+
 4.  Work with the example PLOG files
 
 .. sourcecode:: bash
@@ -144,7 +170,7 @@ Steps
 .. note::
     This default configuration is run on a single server with local Zookeeper, Kafka, Schema Registry and REST Proxy services.
 
-As an alternative, for ease of use, these commands can be wrapped in a script and then invoked to start the processes. Name and save this script to a location of your choice, being sure to set CONFLUENT_HOME correctly within it:
+As an alternative, for ease of use, these commands can be wrapped in a script and then invoked to start the processes. Name and save this script to a location of your choice, being sure to set CONFLUENT_HOME correctly within it. Note that version 3.3.0 of the Confluent Platform now comes with a `CLI utility <http://docs.confluent.io/current/quickstart.html#clihelp>'_ in order to simplify service startup and management, and this is worth exploring as an alternative when running versions > 3.3.0. 
 
 .. sourcecode:: bash
 
@@ -634,22 +660,22 @@ The ObsoleteSourceFileManager aims to identify when source PLOG files stored on 
 
 **Installation**
 
-The Obsolete Source File Manager is part of the kafka-connect-dbvisit-admin package. To install:
+To install:
 
-* download the package
-* install it alongside Kafka and/or Kafka replicate connector in $KAFKA_HOME 
+* download the Connector JAR bundle ``dbvisit_replicate_connector_for_kafka-2.9.00-linux_x86_64-jar.zip`` (see download link at top of page)
+* install it alongside Kafka and/or the Dbvisit Replicate Connector in $KAFKA_HOME OR unzip to CONFLUENT_HOME
 * run the wrapper script
 
 .. sourcecode:: bash
 
     cd $KAFKA_HOME;
-    unzip kafka-connect-dbvisit-admin-2.9.00-SNAPSHOT-package.zip
-    $KAFKA_HOME/obsolete-source-file-manager.sh
+    unzip dbvisit_replicate_connector_for_kafka-2.9.00-linux_x86_64-jar.zip
+    $KAFKA_HOME/bin/obsolete-source-file-manager.sh
 
 OR
 
 * install Kafka to standard location /usr/share/java
-* download and unzip the kafka-connect-dbvisit-admin package in a different location, eg. $HOME
+* download and unzip the Connector JAR bundle ``dbvisit_replicate_connector_for_kafka-2.9.00-linux_x86_64-jar.zip`` in a different location, eg. $HOME
 * export $PATH
 * run the wrapper script
 
@@ -763,7 +789,7 @@ To upgrade to a newer version of the Dbvisit Replicate Connector for Kafka simpl
 
 .. sourcecode:: bash
 
-    $CONFLUENT_HOME/share/java/kafka-connect-dbvisitreplicate
+    $CONFLUENT_HOME/share/java/kafka-connect-dbvisit
 
 .. note::
     
@@ -774,7 +800,11 @@ Troubleshooting
 
 Logging
 ^^^^^^^
-To alter logging levels for the connector all you need to do is update the log4j.properties file used by the invocation of the Kafka Connect worker. You can either edit the default file directly (see bin/connect-distributed and bin/connect-standalone) or set the env variable KAFKA_LOG4J_OPTS before invoking those scripts (exact syntax is ' export KAFKA_LOG4J_OPTS="-Dlog4j.configuration=file:${CFG_DIR}/dbvisitreplicate-log4j.properties" ')
+To alter logging levels for the connector all you need to do is update the log4j.properties file used by the invocation of the Kafka Connect worker. You can either edit the default file directly (see bin/connect-distributed and bin/connect-standalone) or set the env variable KAFKA_LOG4J_OPTS before invoking those scripts. The exact syntax is:
+
+.. sourcecode:: bash
+
+    export KAFKA_LOG4J_OPTS="-Dlog4j.configuration=file:${CFG_DIR}/dbvisitreplicate-log4j.properties"
 
 In the following example, the settings were set to DEBUG to increase the log level for this connector class (and other options are ERROR, WARNING and INFO):
 

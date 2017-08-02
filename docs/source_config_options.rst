@@ -94,7 +94,7 @@ Includes all configuration options for 2.8.04.
   * Default: changerow
 
 ``connector.publish.transaction.info``
-  Set whether or not the transaction info topic (``topic.name.transaction.info``) should be populated. This includes adding three fields to each Kafka data message to link the individual change message to its parent transaction message:
+  Set whether or not the transaction info topic ``topic.name.transaction.info`` should be populated. This includes adding three fields to each Kafka data message to link the individual change message to its parent transaction message:
 
   * XID - transaction ID
   * TYPE - type of change, e.g. INSERT, UPDATE or DELETE
