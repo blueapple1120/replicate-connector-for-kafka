@@ -1,6 +1,6 @@
 # Replicate Connector for Kafka
 
-Copyright (C) 2016 Dbvisit Software Limited -- Updated 2 December 2016.
+Copyright (C) 2017 Dbvisit Software Limited -- Updated 2nd August 2017.
 
 # 1 Introduction
 
