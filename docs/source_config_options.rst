@@ -17,6 +17,8 @@ Key User Configuration Properties
 All User Configuration Properties
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+**Version 2.8.04**
+
 ``tasks.max``
   Maximum number of tasks to start for processing PLOGs.
 
@@ -27,7 +29,7 @@ All User Configuration Properties
   Prefix for all topic names.
 
   * Type: string
-  * Default: REP-
+  * Default:
 
 ``plog.location.uri``
   Replicate PLOG location URI, output of Replicate MINE.
@@ -76,6 +78,74 @@ All User Configuration Properties
 
   * Type: string
   * Default: 0
+
+
+**Version 2.9.00**
+  Includes all configuration options for 2.8.04.
+
+``connector.publish.cdc.format``
+  Set the output CDC format of the Replicate Connector. This determines what type of messages are published to Kafka, and the options are:
+
+  1. changerow - complete row, the view of the table record after the action was applied (Default)
+  2. changeset - publish the KEY, NEW, OLD and LOB change fields separately
+
+  * Type: string
+  * Default: changerow
+
+``connector.publish.transaction.info``
+  Set whether or not the transaction info topic (topic.name.transaction.info) should be populated. This includes adding three fields to each Kafka data message to link the individual change message to its parent transaction message:
+
+  * XID - transaction ID
+  * TYPE - type of change, e.g. INSERT, UPDATE or DELETE
+  * CHANGE_ID - unique ID of change
+
+  The options are:
+
+  1. true
+  2. false - do not publish the extra transaction info and fields
+
+  * Type: string
+  * Default: true
+
+``connector.publish.keys``
+  Set whether or not keys should be published to all table topics. Keys are either primary or unique table constraints. When none of these are available all columns with either character, numeric or date data types are used as the key. The latter is not ideal, so it is encouraged to use PK or unique key constraints on source table.
+
+  The options are:
+
+  1. true - publish key schema and values for all Kafka data messages (not transactional info message)
+  2. false - do not publish keys
+
+  * Type: string
+  * Default: false
+
+``connector.publish.no.schema.evolution``
+  If logical data types are used as default values certain versions of Schema Registry might fail validation due to an issue, see #556. This option is provided for disabling schema evolution for BACKWARDS compatible schemas, effectively forcing all messages to conform to the first schema version published by ignoring all subsequent DDL operations.
+
+  The options are:
+
+  1. true - disable schema evolution, ignore all DDL modifications
+  2. false - allow schema evolution for Schema Registry version 3.3 and newer
+
+  * Type: string
+  * Default: true
+
+``topic.static.schemas``
+  Define the source schemas, as a comma separated list of fully qualified source table names, that may be considered static or only receiving sporadic changes. The committed offsets of their last message can be safely ignored if the lapsed days between the source PLOG of a new message and that of a previous one exceeds topic.static.offsets.age.days
+
+  Example:
+  * SCHEMA.TABLE1,SCHEMA.TABLE2
+
+  * Type: string
+  * Default: none
+
+``topic.static.offsets.age.days``
+  The age of the last committed offset for a static schema topic.static.schemas, when it can be safely ignored during a task restart and stream rewind. A message that originated from a source PLOG older will be considered static and not restart at its original source PLOG stream offset, but instead at its next available message offset. This is intended for static look up tables that rarely change when their source PLOGs may have been flushed since their last update. Defaults to 7 days.
+
+  * Type: string
+  * Default: 7   
+
+
+
 
 
 Data Types

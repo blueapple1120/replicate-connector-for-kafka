@@ -5,5 +5,6 @@ Changelog
 
 Replicate Source Connector
 --------------------------
-* DATE () - `Early Release <https://github.com/dbvisitsoftware/replicate-connector-for-kafka/>`_
+* Dec 2016 - `Early Release <https://github.com/dbvisitsoftware/replicate-connector-for-kafka/>`_
+* 2nd Aug 2017 - `2.9.00 Release <https://github.com/dbvisitsoftware/replicate-connector-for-kafka/>`_
  
