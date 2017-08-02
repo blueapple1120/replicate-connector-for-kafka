@@ -511,6 +511,9 @@ Inline LOB
 ^^^^^^^^^^
 Only single-part inline LOBs (inline - LOB size < 4000 bytes) are replicated as complete fields. All others (larger/out-of-line LOBs) will be partial LOB writes.
 
+Single mandatory LOB field
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+Only one mandatory (NOT-NULL) LOB field is supported in a single change row when integrated with Avro/Schema Registry.
 
 Multiple LOB fields
 ^^^^^^^^^^^^^^^^^^^
@@ -573,7 +576,7 @@ Conversely any columns which are dropped will have null values assigned, as in t
     {"XID":"0005.013.0000826f","TYPE":"UPDATE","CHANGE_ID":1078010000324,"USER_ID":{"bytes":"\u0000"},"USER_NAME":{"string":"Matt Roberts"},"USER_ROLE":{"string":"Senior Partner"},"EXTRA":null}
 
 .. note::
-    When working with a table without any keys defined with key publishing enabled (``connector.publish.keys``) columns removed from the Oracle source will remain in the corresponding Kafka topic. a column it won’t crash but the column will remain for the moment just populated with null…
+    When working with a table without any keys defined, with key publishing enabled (``connector.publish.keys``) columns removed from the Oracle source will remain in the corresponding Kafka topic. The column will remain and be populated with null. As noted with ``connector.publish.keys`` it is, however, recommended to create a primary or unique key in the Oracle source table.
 
 
 Delivery Semantics
